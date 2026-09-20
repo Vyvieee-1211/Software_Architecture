@@ -1,0 +1,10 @@
+services:
+  api:
+    build: .
+    environment:
+      DATABASE_URL: sqlite:////data/concert.db
+      JWT_SECRET: change-me-in-production-at-least-32-bytes-long
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data        # file SQLite nằm ở ./data/concert.db trên máy bạn
