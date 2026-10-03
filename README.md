@@ -224,8 +224,8 @@ Chi tiết bảo đảm tính nguyên tử và hành vi khi có nhiều yêu c�
 **Bước 1: Clone repository**
 
 ```bash
-git clone <https://github.com/Vyvieee-1211/Software_Architecture>
-cd <Software_Architecture>
+git clone https://github.com/Vyvieee-1211/Software_Architecture
+cd Software_Architecture
 ```
 
 **Bước 2: Khởi chạy ứng dụng**
