@@ -514,5 +514,10 @@ Phase 2 dự kiến kế thừa trực tiếp mã nguồn Phase 1, xác định 
 
 Nhóm sẽ lựa chọn các hạng mục phù hợp với thời gian và kết quả đánh giá Phase 1. Không nhất thiết triển khai tất cả các hướng cải tiến cùng lúc; ưu tiên dựa trên vấn đề đo được và yêu cầu của học phần.
 
+### 12. Giới hạn hiện tại
+Phase 1 cung cấp backend API; chưa có giao diện Frontend.
+SQLite đang được dùng làm database mặc định, vì vậy kết quả tải không đại diện cho mọi môi trường triển khai.
+Cấu hình thử tải là cấu hình gợi ý; hiệu năng thực tế phải được xác nhận bằng kết quả chạy.
+Khả năng xử lý tranh chấp tồn kho ở mức tải cao cần được kiểm tra riêng bằng kịch bản đồng thời và đối chiếu dữ liệu.
+Các cải tiến được mô tả ở mục Phase 2 mới là định hướng cho giai đoạn tiếp theo.
 \---
-
