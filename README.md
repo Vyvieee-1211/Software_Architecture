@@ -520,4 +520,4 @@ Nhóm sẽ lựa chọn các hạng mục phù hợp với thời gian và kết
 * Cấu hình thử tải là cấu hình gợi ý; hiệu năng thực tế phải được xác nhận bằng kết quả chạy.
 * Khả năng xử lý tranh chấp tồn kho ở mức tải cao cần được kiểm tra riêng bằng kịch bản đồng thời và đối chiếu dữ liệu.
 * Các cải tiến được mô tả ở mục Phase 2 mới là định hướng cho giai đoạn tiếp theo.
-\---
+  
