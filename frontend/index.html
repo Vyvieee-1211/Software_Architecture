@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#7155d8" />
+    <meta name="description" content="Khám phá concert, chọn hạng vé và quản lý đơn vé của bạn." />
+    <title>Concert — Đặt vé âm nhạc</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%237155d8'/%3E%3Ctext x='14' y='46' font-size='43' fill='white'%3E♫%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Đến nội dung chính</a>
+    <header class="site-header">
+      <div class="header-inner">
+        <a class="brand" href="#/" aria-label="Concert — Trang chủ">
+          <span class="brand-mark" aria-hidden="true">♫</span>
+          <span><span class="brand-name">concert<span class="brand-dot">.</span></span><span class="brand-caption">Âm nhạc. Gặp gỡ. Kỷ niệm.</span></span>
+        </a>
+        <nav class="nav" aria-label="Điều hướng chính">
+          <a class="nav-link" href="#/" data-nav="home">Khám phá</a>
+          <a class="nav-link" href="#/my-orders" data-nav="orders">Đơn vé của tôi</a>
+        </nav>
+        <div class="account" id="account"></div>
+      </div>
+    </header>
+    <div class="container" id="notices" aria-live="polite" aria-atomic="true"></div>
+    <main class="container" id="main" tabindex="-1"></main>
+    <footer class="site-footer"><div class="container"><span class="footer-brand">concert.</span><span>Một tấm vé, một trải nghiệm đáng nhớ.</span></div></footer>
+    <dialog class="modal" id="confirm-dialog" aria-labelledby="confirm-title">
+      <h2 id="confirm-title"></h2>
+      <div id="confirm-content"></div>
+      <p id="confirm-error" class="form-error" role="alert" hidden></p>
+      <div class="modal-actions">
+        <button class="button button-secondary" id="confirm-cancel" type="button">Quay lại</button>
+        <button class="button button-primary" id="confirm-submit" type="button">Xác nhận</button>
+      </div>
+    </dialog>
+    <noscript><p class="container">Vui lòng bật JavaScript để sử dụng chức năng đặt vé.</p></noscript>
+  </body>
+</html>
