@@ -17,11 +17,6 @@ class TicketTypeRepository:
         )
 
     def reserve(self, ticket_type_id: int, quantity: int) -> bool:
-        """Trừ `quantity` vé trong MỘT câu UPDATE có điều kiện.
-
-        Trả về True nếu trừ được, False nếu không đủ vé. Làm kiểu này (thay vì đọc số
-        lên Python rồi ghi lại) để nhiều request đồng thời không bán quá số vé.
-        """
         result = self.db.execute(
             update(TicketType)
             .where(TicketType.id == ticket_type_id, TicketType.remaining >= quantity)

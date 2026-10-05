@@ -1,4 +1,4 @@
-"""Nghiệp vụ concert: chỉ đọc. Giữ lại thành service riêng để tầng API không gọi thẳng repo."""
+"""Tầng nghiệp vụ: chỉ đọc"""
 from app.services.errors import NotFound
 
 

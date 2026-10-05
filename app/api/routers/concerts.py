@@ -6,6 +6,7 @@ from app.services.concert_service import ConcertService
 
 router = APIRouter(prefix="/concerts", tags=["concerts"])
 
+"""Không cần đăng nhập để xem danh sách concert hiện có"""
 
 @router.get("", response_model=list[ConcertResponse])
 def list_concerts(svc: ConcertService = Depends(get_concert_service)):
