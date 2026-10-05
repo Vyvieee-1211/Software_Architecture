@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.api.routers import auth, concerts, orders
+from app.api.routers import auth, concerts, orders, concert_management
 from app.repositories.database import init_db
 from app.services import errors
 
@@ -25,6 +25,7 @@ app = FastAPI(
 app.include_router(auth.router)
 app.include_router(concerts.router)
 app.include_router(orders.router)
+app.include_router(concert_management.router)
 
 
 ERROR_STATUS = {
