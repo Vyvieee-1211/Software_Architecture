@@ -1,7 +1,4 @@
-"""Nghiệp vụ tài khoản: đăng ký, đăng nhập, cấp và kiểm tra token.
-
-Không phụ thuộc framework web hay ORM. Repository được truyền vào từ tầng API (deps.py).
-"""
+"""Nghiệp vụ tài khoản: đăng ký, đăng nhập, cấp và kiểm tra token"""
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -21,21 +18,19 @@ class AuthService:
             raise EmailAlreadyExists(email)
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
         return self.user_repo.create(email=email, password_hash=password_hash, full_name=full_name)
-
-    def login(self, email: str, password: str) -> str:
-        """Trả về access token nếu đúng email + mật khẩu."""
+    
+    def login(self, email: str, password: str) -> str: 
+        """Tra ve token neu dung email, password"""
         user = self.user_repo.get_by_email(email)
         if user is None or not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
             raise InvalidCredentials()
-        return self._issue_token(user.id)
-
-    def _issue_token(self, user_id: int) -> str:
         now = datetime.now(timezone.utc)
-        payload = {"sub": str(user_id), "iat": now, "exp": now + timedelta(minutes=self.expire_minutes)}
+        payload = {"sub": str(user.id), "iat": now, "exp": now + timedelta(minutes=self.expire_minutes)}
         return jwt.encode(payload, self.jwt_secret, algorithm="HS256")
+        
 
     def verify_token(self, token: str) -> int:
-        """Giải mã token, trả về user_id. Ném InvalidToken nếu sai/hết hạn."""
+        """Trả về user_id. Ném InvalidToken nếu sai/hết hạn."""
         try:
             payload = jwt.decode(token, self.jwt_secret, algorithms=["HS256"])
             return int(payload["sub"])

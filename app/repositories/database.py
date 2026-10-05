@@ -1,4 +1,3 @@
-"""Kết nối DB: engine + SessionLocal. Chỉ tầng API (deps.py) và scripts mới dùng file này."""
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -11,5 +10,4 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def init_db() -> None:
-    """Tạo bảng nếu chưa có. Pha 1 dùng create_all cho đơn giản (chưa cần Alembic)."""
     Base.metadata.create_all(bind=engine)
