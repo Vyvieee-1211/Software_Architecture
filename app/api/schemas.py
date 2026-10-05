@@ -66,3 +66,11 @@ class OrderResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CreateConcertRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    artist: str | None = None
+    venue: str | None = None
+    start_time: datetime
+    sale_open_time: datetime

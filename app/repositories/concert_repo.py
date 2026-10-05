@@ -13,3 +13,29 @@ class ConcertRepository:
 
     def get_by_id(self, concert_id: int) -> Concert | None:
         return self.db.get(Concert, concert_id)
+
+    def create(
+        self,
+        name: str,
+        artist: str | None,
+        venue: str | None,
+        start_time,
+        sale_open_time,
+    ) -> Concert:
+        concert = Concert(
+            name=name,
+            artist=artist,
+            venue=venue,
+            start_time=start_time,
+            sale_open_time=sale_open_time,
+        )
+
+        self.db.add(concert)
+        self.db.flush()
+        self.db.refresh(concert)
+
+        return concert
+
+    def delete(self, concert: Concert) -> None:
+        self.db.delete(concert)
+        self.db.flush()
