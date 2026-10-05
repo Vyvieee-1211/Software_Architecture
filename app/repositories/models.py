@@ -1,8 +1,3 @@
-"""TẦNG TRUY CẬP DỮ LIỆU — 4 bảng ORM, khai báo đúng theo đề bài.
-
-Đây là file duy nhất định nghĩa schema. CHECK constraint ở đây là "chốt chặn cuối":
-dù tầng nghiệp vụ có lỗi thì DB vẫn không cho remaining < 0 hay quantity <= 0.
-"""
 from datetime import datetime
 
 from sqlalchemy import (

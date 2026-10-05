@@ -1,4 +1,3 @@
-"""Cấu hình đọc từ biến môi trường. Không chứa secret thật trong code."""
 import os
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./concert.db")

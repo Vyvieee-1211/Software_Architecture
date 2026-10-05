@@ -5,8 +5,7 @@ Tầng API sẽ dịch từng lỗi này sang status code (xem app/main.py).
 
 
 class BusinessError(Exception):
-    """Lớp cha cho mọi lỗi nghiệp vụ."""
-
+    """Lớp cha cho mọi lỗi nghiệp vụ.""" 
 
 class NotFound(BusinessError):
     pass
@@ -37,4 +36,4 @@ class Forbidden(BusinessError):
 
 
 class InvalidState(BusinessError):
-    """Ví dụ: huỷ một đơn đã huỷ rồi."""
+    pass

@@ -1,4 +1,4 @@
-"""Pydantic schema: hình dạng JSON vào/ra của API. Chỉ tầng API dùng."""
+"""Định nghĩa cấu trúc dữ liệu"""
 from datetime import datetime
 from decimal import Decimal
 

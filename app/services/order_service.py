@@ -16,6 +16,11 @@ class OrderService:
         self.clock = clock
 
     def create_order(self, user_id: int, ticket_type_id: int, quantity: int):
+        if quantity <= 0:
+            raise ValueError("quantity must be greater than 0")
+        if quantity > 10:
+            raise ValueError("quantity must not exceed 10 per order")
+
         ticket_type = self.ticket_type_repo.get_by_id(ticket_type_id)
         if ticket_type is None:
             raise NotFound(f"ticket_type {ticket_type_id}")

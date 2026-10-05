@@ -304,7 +304,8 @@ Khi ứng dụng đang chạy, truy cập:
 |-|-|-|-|
 |`POST`|`/auth/register`|Không yêu cầu|Đăng ký tài khoản.|
 |`POST`|`/auth/login`|Không yêu cầu|Đăng nhập và nhận access token.|
-|`GET`|`/concerts`|Không yêu cầu|Lấy danh sách concert.|
+|`GET`|`/concerts`|Không yêu cầu|Lấy danh sách concert; thêm `?on_sale=true` để chỉ lấy concert đã mở bán.|
+|`GET`|`/concerts/{id}`|Không yêu cầu|Xem chi tiết concert; trả 404 nếu không tồn tại.|
 |`GET`|`/concerts/{id}/ticket-types`|Không yêu cầu|Lấy các loại vé của một concert.|
 |`POST`|`/orders`|Bearer Token|Tạo đơn đặt vé.|
 |`GET`|`/orders/me`|Bearer Token|Xem đơn hàng của người dùng hiện tại.|
