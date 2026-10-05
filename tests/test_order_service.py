@@ -1,8 +1,3 @@
-"""Unit test tầng nghiệp vụ với repository GIẢ (in-memory).
-
-Không cần DB, không cần FastAPI: chứng minh service tách biệt hoàn toàn với hạ tầng.
-Chạy: pytest
-"""
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -99,6 +94,35 @@ def test_create_order_unknown_ticket_type(svc):
     with pytest.raises(NotFound):
         svc.create_order(user_id=1, ticket_type_id=999, quantity=1)
 
+def test_create_order_min_valid_quantity(svc):
+    order = svc.create_order(user_id=1, ticket_type_id=10, quantity=1)
+    assert order.status == "confirmed"
+    assert svc.ticket_type_repo.get_by_id(10).remaining == 4
+
+
+def test_create_order_max_valid_quantity(svc):
+    svc.ticket_type_repo.get_by_id(10).remaining = 20
+    
+    order = svc.create_order(user_id=1, ticket_type_id=10, quantity=10)
+    assert order.status == "confirmed"
+    assert svc.ticket_type_repo.get_by_id(10).remaining == 10
+
+
+def test_create_order_invalid_quantity_zero_or_negative(svc):
+    with pytest.raises(ValueError): 
+        svc.create_order(user_id=1, ticket_type_id=10, quantity=0)
+        
+    with pytest.raises(ValueError):
+        svc.create_order(user_id=1, ticket_type_id=10, quantity=-1)
+
+
+def test_create_order_exceeds_max_limit_per_request(svc):
+    svc.ticket_type_repo.get_by_id(10).remaining = 20
+    with pytest.raises(ValueError): 
+        svc.create_order(user_id=1, ticket_type_id=10, quantity=11)
+
+
+
 
 def test_cancel_order_returns_tickets(svc):
     order = svc.create_order(user_id=1, ticket_type_id=10, quantity=2)
@@ -118,3 +142,9 @@ def test_cancel_twice_invalid(svc):
     svc.cancel_order(user_id=1, order_id=order.id)
     with pytest.raises(InvalidState):
         svc.cancel_order(user_id=1, order_id=order.id)
+
+def test_cancel_order_not_found(svc):
+    with pytest.raises(NotFound):
+        svc.cancel_order(user_id=1, order_id=9999)
+
+

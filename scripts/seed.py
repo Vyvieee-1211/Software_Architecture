@@ -1,8 +1,3 @@
-"""Tạo dữ liệu mẫu: 2 concert, mỗi concert 3 hạng vé, 1 user demo.
-
-Chạy: python -m scripts.seed   (hoặc docker compose exec api python -m scripts.seed)
-Chạy lại nhiều lần không tạo trùng.
-"""
 from datetime import datetime, timedelta
 
 import bcrypt
