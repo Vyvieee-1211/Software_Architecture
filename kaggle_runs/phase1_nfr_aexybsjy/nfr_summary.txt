@@ -1,0 +1,30 @@
+NFR report: FAIL
+NFR01 — PASS: Các trang thông thường phản hồi tối đa 3 giây.
+  - Mọi mẫu của cả 5 trang render thành công trong giới hạn khi đủ tải steady.
+NFR02 — PASS: API xem concert phản hồi trung bình dưới 2 giây.
+  - Tất cả endpoint xem concert trong steady có trung bình < giới hạn và không có request lỗi.
+NFR03 — PASS: Hỗ trợ tối thiểu 100 người dùng đồng thời.
+  - Duy trì đủ user sẵn sàng toàn bộ steady, đủ thời gian, tỷ lệ lỗi trong ngưỡng và lượt chạy hoàn tất sạch.
+NFR04 — INCONCLUSIVE: Đặt vé không bán vượt số lượng còn lại.
+  - oversell_burst: Purchase burst had unexpected HTTP/transport errors or invalid bodies
+  - oversell_burst: Expected 20 successful one-ticket sales; observed 0
+  - oversell_burst: Unsuccessful excess buyers were not all rejected with 409 SoldOut
+  - oversell_burst: Committed sales did not exactly exhaust the isolated finite stock
+  - No overselling violation observed, but the purchase contention probe did not complete successfully; availability errors cannot establish no-overselling.
+NFR05 — FAIL: Cập nhật tồn kho có cơ chế xử lý đồng thời phù hợp.
+  - duplicate_cancellation_trial_2: Same-order cancellation expected one 200 and 9 InvalidState conflicts; got 2 successes and 8 conflicts
+  - duplicate_cancellation_trial_2: Duplicate cancellation did not return exactly one order's inventory
+  - duplicate_cancellation_trial_2: Final inventory violates remaining bounds or remaining+confirmed=total
+  - duplicate_cancellation_trial_3: Same-order cancellation expected one 200 and 9 InvalidState conflicts; got 2 successes and 8 conflicts
+  - duplicate_cancellation_trial_3: Duplicate cancellation did not return exactly one order's inventory
+  - duplicate_cancellation_trial_3: Final inventory violates remaining bounds or remaining+confirmed=total
+  - mixed_buy_cancel: Mixed contention produced unexpected HTTP/transport errors or invalid bodies
+  - mixed_buy_cancel: Mixed contention did not exercise both successful purchases and cancellations
+  - mixed_buy_cancel: Mixed contention HTTP successes do not match committed order records
+
+Assumptions:
+  - Normal network: the explicit simulated Chromium profile in pages.json, not a claim about every real network.
+  - Steady observation >=120 seconds; readiness is sampled throughout, not inferred from peak configured users.
+  - NFR03 unexpected error budget 1.00% is an operational assumption; the supplied NFRs did not specify an error budget.
+  - Measurements are local laboratory observations; no production capacity is inferred.
+  - Dedicated race fixtures are separate from baseline ticket-hunt inventory.

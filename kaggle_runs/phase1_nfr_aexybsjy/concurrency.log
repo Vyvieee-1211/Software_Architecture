@@ -1,0 +1,40 @@
+{
+  "nfr04": {
+    "status": "INCONCLUSIVE",
+    "successful_sales": 0,
+    "reasons": [
+      "oversell_burst: Purchase burst had unexpected HTTP/transport errors or invalid bodies",
+      "oversell_burst: Expected 20 successful one-ticket sales; observed 0",
+      "oversell_burst: Unsuccessful excess buyers were not all rejected with 409 SoldOut",
+      "oversell_burst: Committed sales did not exactly exhaust the isolated finite stock",
+      "No overselling violation observed, but the purchase contention probe did not complete successfully; availability errors cannot establish no-overselling."
+    ],
+    "observed": {
+      "cases": 1,
+      "max_peak_inflight": 100,
+      "successful_cancellations": 0,
+      "invariant_violations": 0
+    }
+  },
+  "nfr05": {
+    "status": "FAIL",
+    "successful_sales": 46,
+    "reasons": [
+      "duplicate_cancellation_trial_2: Same-order cancellation expected one 200 and 9 InvalidState conflicts; got 2 successes and 8 conflicts",
+      "duplicate_cancellation_trial_2: Duplicate cancellation did not return exactly one order's inventory",
+      "duplicate_cancellation_trial_2: Final inventory violates remaining bounds or remaining+confirmed=total",
+      "duplicate_cancellation_trial_3: Same-order cancellation expected one 200 and 9 InvalidState conflicts; got 2 successes and 8 conflicts",
+      "duplicate_cancellation_trial_3: Duplicate cancellation did not return exactly one order's inventory",
+      "duplicate_cancellation_trial_3: Final inventory violates remaining bounds or remaining+confirmed=total",
+      "mixed_buy_cancel: Mixed contention produced unexpected HTTP/transport errors or invalid bodies",
+      "mixed_buy_cancel: Mixed contention did not exercise both successful purchases and cancellations",
+      "mixed_buy_cancel: Mixed contention HTTP successes do not match committed order records"
+    ],
+    "observed": {
+      "cases": 7,
+      "max_peak_inflight": 110,
+      "successful_cancellations": 36,
+      "invariant_violations": 2
+    }
+  }
+}

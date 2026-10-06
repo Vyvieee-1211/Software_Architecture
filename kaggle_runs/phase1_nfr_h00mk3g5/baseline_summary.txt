@@ -1,0 +1,21 @@
+HIT THE VIBE — SĂN VÉ (ticket-hunt-nfr-v3)
+Môi trường: Windows-11-10.0.26200-SP0; API và Locust cùng máy; Uvicorn 1 worker.
+Phase: 1; user: 100; tăng 20.0/giây; thời gian: 120 giây.
+Tạo tài khoản ngoài thời gian đo. Đăng nhập/ramp-up có log riêng; bảng NFR đo riêng steady. Có giai đoạn chờ request cuối hoàn tất.
+User bắt đầu / đăng nhập / sẵn sàng: 100 / 100 / 100
+Lỗi khởi tạo: 0; lỗi kịch bản: 0
+Request: 10007; lỗi Locust: 0 (0.00%); RPS: 79.91
+P50/P95/P99 toàn bài (ms): 7 / 26 / 320
+POST /auth/login: 100 request; 0 lỗi; RPS 0.80; P50/P95/P99 510/750/760 ms
+POST /orders: 129 request; 0 lỗi; RPS 1.03; P50/P95/P99 20/160/230 ms
+Đặt thành công được client xác nhận: 110; hết vé: 19; hủy thành công: 10
+P50/P95/P99 riêng đơn thành công (ms, từ mẫu request): [25.254, 160.045, 205.573]
+HTTP 4xx/5xx: 19; lỗi kết nối: 0
+Chỉ 409 + error=SoldOut được coi là từ chối nghiệp vụ hợp lệ, không phải mua thành công.
+Database: tổng vé từng đặt 163; đã hoàn 13; còn confirmed 150/150.
+Kiểm tra dữ liệu: {"sqlite_integrity": true, "foreign_keys": true, "inventory_matches": true, "valid_order_statuses": true, "one_active_order_per_user": true}
+Số đơn DB có thể khác số response thành công nếu client timeout sau khi server ghi dữ liệu.
+Đây là mô phỏng hành vi săn vé hữu hạn, không phải đo công suất đặt vé liên tục.
+Bảng baseline gồm warmup + steady + drain; dùng nfr_summary.txt để đối chiếu NFR01–05.
+CẢNH BÁO: api.log có lỗi database is locked (số lần xuất hiện không phải số request lỗi).
+CẢNH BÁO: api.log có lỗi hết kết nối QueuePool; cần xem vòng đời transaction/session của backend.

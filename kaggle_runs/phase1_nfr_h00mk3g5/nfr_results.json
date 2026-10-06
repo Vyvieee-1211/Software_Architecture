@@ -1,0 +1,395 @@
+{
+  "schema_version": 1,
+  "run_dir": "D:\\kaggle\\working\\phase1_nfr_h00mk3g5",
+  "status": "FAIL",
+  "results": [
+    {
+      "nfr": "NFR01",
+      "description": "Các trang thông thường phản hồi tối đa 3 giây.",
+      "status": "PASS",
+      "reasons": [
+        "Mọi mẫu của cả 5 trang render thành công trong giới hạn khi đủ tải steady."
+      ],
+      "observed": {
+        "routes": {
+          "/": {
+            "samples": 3,
+            "successful_samples": 3,
+            "samples_during_required_load": 3,
+            "max_ms": 531.166
+          },
+          "/concerts/{id}": {
+            "samples": 3,
+            "successful_samples": 3,
+            "samples_during_required_load": 3,
+            "max_ms": 494.53
+          },
+          "/login": {
+            "samples": 3,
+            "successful_samples": 3,
+            "samples_during_required_load": 3,
+            "max_ms": 383.085
+          },
+          "/register": {
+            "samples": 3,
+            "successful_samples": 3,
+            "samples_during_required_load": 3,
+            "max_ms": 369.27
+          },
+          "/my-orders": {
+            "samples": 3,
+            "successful_samples": 3,
+            "samples_during_required_load": 3,
+            "max_ms": 577.017
+          }
+        },
+        "network": {
+          "latency_ms": 50.0,
+          "download_mbps": 10.0,
+          "upload_mbps": 5.0,
+          "simulated": true
+        },
+        "scope": "Browser end-to-end render (including required API responses), simulated normal network, local laboratory."
+      },
+      "target": {
+        "max_page_ms": 3000.0,
+        "samples_per_route": 3,
+        "minimum_ready_users": 100,
+        "required_routes": [
+          "/",
+          "/concerts/{id}",
+          "/login",
+          "/register",
+          "/my-orders"
+        ]
+      }
+    },
+    {
+      "nfr": "NFR02",
+      "description": "API xem concert phản hồi trung bình dưới 2 giây.",
+      "status": "PASS",
+      "reasons": [
+        "Tất cả endpoint xem concert trong steady có trung bình < giới hạn và không có request lỗi."
+      ],
+      "observed": {
+        "endpoints": {
+          "/concerts": {
+            "requests": 915,
+            "failures": 0,
+            "mean_ms": 6.6865420765027315
+          },
+          "/concerts?on_sale=true": {
+            "requests": 935,
+            "failures": 0,
+            "mean_ms": 6.819836363636363
+          },
+          "/concerts/{id}": {
+            "requests": 959,
+            "failures": 0,
+            "mean_ms": 7.067574556830031
+          }
+        },
+        "overall_mean_ms": 6.860995728017088,
+        "requests": 2809,
+        "phase": "steady"
+      },
+      "target": {
+        "mean_ms_exclusive": 2000.0,
+        "allowed_failures": 0,
+        "required_endpoints": [
+          "/concerts",
+          "/concerts?on_sale=true",
+          "/concerts/{id}"
+        ]
+      }
+    },
+    {
+      "nfr": "NFR03",
+      "description": "Hỗ trợ tối thiểu 100 người dùng đồng thời.",
+      "status": "PASS",
+      "reasons": [
+        "Duy trì đủ user sẵn sàng toàn bộ steady, đủ thời gian, tỷ lệ lỗi trong ngưỡng và lượt chạy hoàn tất sạch."
+      ],
+      "observed": {
+        "configured_users": 100,
+        "required_users": 100,
+        "steady_started_ts": 1791234928.180639,
+        "steady_ended_ts": 1791235048.2512743,
+        "observed_steady_seconds": 120.0706353187561,
+        "monitor_samples": 239,
+        "minimum_ready_users": 100.0,
+        "peak_ready_users": 100.0,
+        "max_allowed_monitor_gap_seconds": 2.5,
+        "steady_requests": 9464,
+        "distinct_steady_users": 100,
+        "unexpected_failures": 0,
+        "unexpected_error_rate": 0.0,
+        "ready_users_total": 100.0,
+        "locust_exit_code": 0.0,
+        "run_completed": true
+      },
+      "target": {
+        "minimum_ready_users": 100,
+        "minimum_steady_seconds": 120.0,
+        "max_unexpected_error_rate": 0.01,
+        "error_rate_is_operational_assumption": true
+      }
+    },
+    {
+      "nfr": "NFR04",
+      "description": "Đặt vé không bán vượt số lượng còn lại.",
+      "status": "INCONCLUSIVE",
+      "reasons": [
+        "oversell_burst: Purchase burst had unexpected HTTP/transport errors or invalid bodies",
+        "oversell_burst: Expected 20 successful one-ticket sales; observed 0",
+        "oversell_burst: Unsuccessful excess buyers were not all rejected with 409 SoldOut",
+        "oversell_burst: Committed sales did not exactly exhaust the isolated finite stock",
+        "No overselling violation observed, but the purchase contention probe did not complete successfully; availability errors cannot establish no-overselling."
+      ],
+      "observed": {
+        "cases": 1,
+        "max_peak_inflight": 100,
+        "successful_cancellations": 0,
+        "invariant_violations": 0,
+        "successful_sales": 0.0
+      },
+      "target": {
+        "positive_successful_sales_required": true,
+        "dedicated_concurrency_probe_required": true,
+        "invariant": "0 <= remaining <= total; confirmed_quantity + remaining = total",
+        "fixture_scope": "Separate fixture IDs; excluded from the baseline ticket-hunt inventory."
+      }
+    },
+    {
+      "nfr": "NFR05",
+      "description": "Cập nhật tồn kho có cơ chế xử lý đồng thời phù hợp.",
+      "status": "FAIL",
+      "reasons": [
+        "duplicate_cancellation_trial_1: Same-order cancellation expected one 200 and 9 InvalidState conflicts; got 2 successes and 8 conflicts",
+        "duplicate_cancellation_trial_1: Duplicate cancellation did not return exactly one order's inventory",
+        "duplicate_cancellation_trial_1: Final inventory violates remaining bounds or remaining+confirmed=total",
+        "duplicate_cancellation_trial_3: Same-order cancellation expected one 200 and 9 InvalidState conflicts; got 2 successes and 8 conflicts",
+        "duplicate_cancellation_trial_3: Duplicate cancellation did not return exactly one order's inventory",
+        "duplicate_cancellation_trial_3: Final inventory violates remaining bounds or remaining+confirmed=total",
+        "duplicate_cancellation_trial_4: Same-order cancellation expected one 200 and 9 InvalidState conflicts; got 2 successes and 8 conflicts",
+        "duplicate_cancellation_trial_4: Duplicate cancellation did not return exactly one order's inventory",
+        "duplicate_cancellation_trial_4: Final inventory violates remaining bounds or remaining+confirmed=total",
+        "mixed_buy_cancel: Mixed contention produced unexpected HTTP/transport errors or invalid bodies",
+        "mixed_buy_cancel: Mixed contention did not exercise both successful purchases and cancellations",
+        "mixed_buy_cancel: Mixed contention HTTP successes do not match committed order records"
+      ],
+      "observed": {
+        "cases": 7,
+        "max_peak_inflight": 110,
+        "successful_cancellations": 31,
+        "invariant_violations": 3,
+        "successful_sales": 39.0
+      },
+      "target": {
+        "positive_successful_sales_required": true,
+        "dedicated_concurrency_probe_required": true,
+        "invariant": "0 <= remaining <= total; confirmed_quantity + remaining = total",
+        "fixture_scope": "Separate fixture IDs; excluded from the baseline ticket-hunt inventory."
+      }
+    }
+  ],
+  "requirements": {
+    "NFR01": {
+      "nfr": "NFR01",
+      "description": "Các trang thông thường phản hồi tối đa 3 giây.",
+      "status": "PASS",
+      "reasons": [
+        "Mọi mẫu của cả 5 trang render thành công trong giới hạn khi đủ tải steady."
+      ],
+      "observed": {
+        "routes": {
+          "/": {
+            "samples": 3,
+            "successful_samples": 3,
+            "samples_during_required_load": 3,
+            "max_ms": 531.166
+          },
+          "/concerts/{id}": {
+            "samples": 3,
+            "successful_samples": 3,
+            "samples_during_required_load": 3,
+            "max_ms": 494.53
+          },
+          "/login": {
+            "samples": 3,
+            "successful_samples": 3,
+            "samples_during_required_load": 3,
+            "max_ms": 383.085
+          },
+          "/register": {
+            "samples": 3,
+            "successful_samples": 3,
+            "samples_during_required_load": 3,
+            "max_ms": 369.27
+          },
+          "/my-orders": {
+            "samples": 3,
+            "successful_samples": 3,
+            "samples_during_required_load": 3,
+            "max_ms": 577.017
+          }
+        },
+        "network": {
+          "latency_ms": 50.0,
+          "download_mbps": 10.0,
+          "upload_mbps": 5.0,
+          "simulated": true
+        },
+        "scope": "Browser end-to-end render (including required API responses), simulated normal network, local laboratory."
+      },
+      "target": {
+        "max_page_ms": 3000.0,
+        "samples_per_route": 3,
+        "minimum_ready_users": 100,
+        "required_routes": [
+          "/",
+          "/concerts/{id}",
+          "/login",
+          "/register",
+          "/my-orders"
+        ]
+      }
+    },
+    "NFR02": {
+      "nfr": "NFR02",
+      "description": "API xem concert phản hồi trung bình dưới 2 giây.",
+      "status": "PASS",
+      "reasons": [
+        "Tất cả endpoint xem concert trong steady có trung bình < giới hạn và không có request lỗi."
+      ],
+      "observed": {
+        "endpoints": {
+          "/concerts": {
+            "requests": 915,
+            "failures": 0,
+            "mean_ms": 6.6865420765027315
+          },
+          "/concerts?on_sale=true": {
+            "requests": 935,
+            "failures": 0,
+            "mean_ms": 6.819836363636363
+          },
+          "/concerts/{id}": {
+            "requests": 959,
+            "failures": 0,
+            "mean_ms": 7.067574556830031
+          }
+        },
+        "overall_mean_ms": 6.860995728017088,
+        "requests": 2809,
+        "phase": "steady"
+      },
+      "target": {
+        "mean_ms_exclusive": 2000.0,
+        "allowed_failures": 0,
+        "required_endpoints": [
+          "/concerts",
+          "/concerts?on_sale=true",
+          "/concerts/{id}"
+        ]
+      }
+    },
+    "NFR03": {
+      "nfr": "NFR03",
+      "description": "Hỗ trợ tối thiểu 100 người dùng đồng thời.",
+      "status": "PASS",
+      "reasons": [
+        "Duy trì đủ user sẵn sàng toàn bộ steady, đủ thời gian, tỷ lệ lỗi trong ngưỡng và lượt chạy hoàn tất sạch."
+      ],
+      "observed": {
+        "configured_users": 100,
+        "required_users": 100,
+        "steady_started_ts": 1791234928.180639,
+        "steady_ended_ts": 1791235048.2512743,
+        "observed_steady_seconds": 120.0706353187561,
+        "monitor_samples": 239,
+        "minimum_ready_users": 100.0,
+        "peak_ready_users": 100.0,
+        "max_allowed_monitor_gap_seconds": 2.5,
+        "steady_requests": 9464,
+        "distinct_steady_users": 100,
+        "unexpected_failures": 0,
+        "unexpected_error_rate": 0.0,
+        "ready_users_total": 100.0,
+        "locust_exit_code": 0.0,
+        "run_completed": true
+      },
+      "target": {
+        "minimum_ready_users": 100,
+        "minimum_steady_seconds": 120.0,
+        "max_unexpected_error_rate": 0.01,
+        "error_rate_is_operational_assumption": true
+      }
+    },
+    "NFR04": {
+      "nfr": "NFR04",
+      "description": "Đặt vé không bán vượt số lượng còn lại.",
+      "status": "INCONCLUSIVE",
+      "reasons": [
+        "oversell_burst: Purchase burst had unexpected HTTP/transport errors or invalid bodies",
+        "oversell_burst: Expected 20 successful one-ticket sales; observed 0",
+        "oversell_burst: Unsuccessful excess buyers were not all rejected with 409 SoldOut",
+        "oversell_burst: Committed sales did not exactly exhaust the isolated finite stock",
+        "No overselling violation observed, but the purchase contention probe did not complete successfully; availability errors cannot establish no-overselling."
+      ],
+      "observed": {
+        "cases": 1,
+        "max_peak_inflight": 100,
+        "successful_cancellations": 0,
+        "invariant_violations": 0,
+        "successful_sales": 0.0
+      },
+      "target": {
+        "positive_successful_sales_required": true,
+        "dedicated_concurrency_probe_required": true,
+        "invariant": "0 <= remaining <= total; confirmed_quantity + remaining = total",
+        "fixture_scope": "Separate fixture IDs; excluded from the baseline ticket-hunt inventory."
+      }
+    },
+    "NFR05": {
+      "nfr": "NFR05",
+      "description": "Cập nhật tồn kho có cơ chế xử lý đồng thời phù hợp.",
+      "status": "FAIL",
+      "reasons": [
+        "duplicate_cancellation_trial_1: Same-order cancellation expected one 200 and 9 InvalidState conflicts; got 2 successes and 8 conflicts",
+        "duplicate_cancellation_trial_1: Duplicate cancellation did not return exactly one order's inventory",
+        "duplicate_cancellation_trial_1: Final inventory violates remaining bounds or remaining+confirmed=total",
+        "duplicate_cancellation_trial_3: Same-order cancellation expected one 200 and 9 InvalidState conflicts; got 2 successes and 8 conflicts",
+        "duplicate_cancellation_trial_3: Duplicate cancellation did not return exactly one order's inventory",
+        "duplicate_cancellation_trial_3: Final inventory violates remaining bounds or remaining+confirmed=total",
+        "duplicate_cancellation_trial_4: Same-order cancellation expected one 200 and 9 InvalidState conflicts; got 2 successes and 8 conflicts",
+        "duplicate_cancellation_trial_4: Duplicate cancellation did not return exactly one order's inventory",
+        "duplicate_cancellation_trial_4: Final inventory violates remaining bounds or remaining+confirmed=total",
+        "mixed_buy_cancel: Mixed contention produced unexpected HTTP/transport errors or invalid bodies",
+        "mixed_buy_cancel: Mixed contention did not exercise both successful purchases and cancellations",
+        "mixed_buy_cancel: Mixed contention HTTP successes do not match committed order records"
+      ],
+      "observed": {
+        "cases": 7,
+        "max_peak_inflight": 110,
+        "successful_cancellations": 31,
+        "invariant_violations": 3,
+        "successful_sales": 39.0
+      },
+      "target": {
+        "positive_successful_sales_required": true,
+        "dedicated_concurrency_probe_required": true,
+        "invariant": "0 <= remaining <= total; confirmed_quantity + remaining = total",
+        "fixture_scope": "Separate fixture IDs; excluded from the baseline ticket-hunt inventory."
+      }
+    }
+  },
+  "assumptions": [
+    "Normal network: the explicit simulated Chromium profile in pages.json, not a claim about every real network.",
+    "Steady observation >=120 seconds; readiness is sampled throughout, not inferred from peak configured users.",
+    "NFR03 unexpected error budget 1.00% is an operational assumption; the supplied NFRs did not specify an error budget.",
+    "Measurements are local laboratory observations; no production capacity is inferred.",
+    "Dedicated race fixtures are separate from baseline ticket-hunt inventory."
+  ],
+  "warnings": []
+}
