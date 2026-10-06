@@ -1,4 +1,4 @@
-# 🎟️ Hệ thống săn vé Concert — Concert Ticketing System
+# 🎟️ Hệ thống bán vé Concert — Concert Ticketing System
 
 > \*\*Phase 1:\*\* Xây dựng backend REST API cho hệ thống đặt vé concert.  
 ---
