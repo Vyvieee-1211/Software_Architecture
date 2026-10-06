@@ -397,12 +397,9 @@ Kết quả xác nhận **43 ca chức năng trong hai file đều đạt** ở 
 
 ### 9.2. Kiểm thử tải
 
-Phần này giữ nguyên số liệu, các bảng kết quả và kết luận trong file `bao_cao_kiem_thu_tai.md` do nhóm cung cấp. Đây là kết quả các lượt chạy đã được báo cáo, không phải một lần chạy tải mới khi thực hiện lệnh pytest ở mục 9.1. Notebook và thư mục `kaggle_runs/` chưa có trong bản mã đang đối chiếu; các đường dẫn dữ liệu cuối mục được ghi lại dưới dạng tham chiếu từ báo cáo nguồn.
-
 Báo cáo tổng hợp **3 lượt baseline** chạy bằng notebook `kaggle_baseline_fixed.ipynb` trong VS Code trên **Windows 11**. Ba lượt sử dụng cùng cấu hình và cùng mã nguồn (đã đối chiếu SHA256 trong `metadata.json`). Mỗi lượt tăng tải 20 user/giây, đợi đủ **100 người dùng sẵn sàng**, sau đó đo thêm **120 giây steady**.
 
 Backend chạy Uvicorn **1 worker**, Python **3.14.7**, SQLite **3.50.4**; máy được ghi nhận có **16 CPU logic**. API và bộ sinh tải chạy cùng máy. Dữ liệu workload gồm một concert mở bán với **150 vé**; mỗi user nghỉ **0,5–2 giây** giữa tác vụ và giữ tối đa một đơn hoạt động. Tài khoản được tạo trước thời gian đo; đăng nhập thuộc warmup. Chromium đo trang với mạng giả lập: latency **50 ms**, tải xuống **10 Mbps**, tải lên **5 Mbps**.
-
 **Các lượt được sử dụng** — thời gian khởi động theo múi giờ Việt Nam (UTC+7):
 
 | Lượt | Thư mục kết quả | Thời điểm khởi động |
