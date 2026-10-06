@@ -10,7 +10,7 @@
 |**Tên môn học**|Kiến trúc phần mềm|
 |**Mã lớp học phần**|INT3105 2|
 |**Giảng viên**|PGS.TS. Võ Đình Hiếu|
-|**Tên dự án**|Hệ thống săn vé Concert (Concert Ticketing System)|
+|**Tên dự án**|Hệ thống bán vé Concert (Concert Ticketing System)|
 
 ### Thành viên nhóm
 
