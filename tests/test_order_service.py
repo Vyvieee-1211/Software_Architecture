@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.errors import Forbidden, InvalidState, NotFound, SaleNotOpen, SoldOut
+from app.services.errors import (
+    Forbidden, IdempotencyKeyReused, InvalidState, NotFound, SaleNotOpen, SoldOut,
+)
 from app.services.order_service import OrderService
 
 NOW = datetime(2026, 9, 19, 12, 0, 0)
@@ -40,14 +42,23 @@ class FakeOrderRepo:
         self.orders = {}
         self._next = 1
 
-    def create(self, user_id, ticket_type_id, quantity):
+    def create(self, user_id, ticket_type_id, quantity, idempotency_key=None):
         o = SimpleNamespace(
             id=self._next, user_id=user_id, ticket_type_id=ticket_type_id,
-            quantity=quantity, status="confirmed",
+            quantity=quantity, status="confirmed", idempotency_key=idempotency_key,
         )
         self.orders[o.id] = o
         self._next += 1
         return o
+
+    def create_idempotent(self, user_id, ticket_type_id, quantity, idempotency_key):
+        if self.get_by_idempotency_key(user_id, idempotency_key) is not None:
+            return None
+        return self.create(user_id, ticket_type_id, quantity, idempotency_key)
+
+    def get_by_idempotency_key(self, user_id, idempotency_key):
+        return next((o for o in self.orders.values()
+                     if o.user_id == user_id and o.idempotency_key == idempotency_key), None)
 
     def get_by_id(self, order_id):
         return self.orders.get(order_id)
@@ -146,5 +157,46 @@ def test_cancel_twice_invalid(svc):
 def test_cancel_order_not_found(svc):
     with pytest.raises(NotFound):
         svc.cancel_order(user_id=1, order_id=9999)
+
+
+def test_retry_with_same_idempotency_key_returns_same_order(svc):
+    first, created = svc.place_order(1, 10, 2, idempotency_key="key-retry-1")
+    again, created_again = svc.place_order(1, 10, 2, idempotency_key="key-retry-1")
+    assert created is True and created_again is False
+    assert again is first
+    assert len(svc.order_repo.orders) == 1
+    assert svc.ticket_type_repo.get_by_id(10).remaining == 3
+
+
+def test_retry_after_cancel_does_not_rebook(svc):
+    order = svc.create_order(1, 10, 2, idempotency_key="key-retry-2")
+    svc.cancel_order(1, order.id)
+    replay = svc.create_order(1, 10, 2, idempotency_key="key-retry-2")
+    assert replay is order and replay.status == "cancelled"
+    assert svc.ticket_type_repo.get_by_id(10).remaining == 5
+
+
+def test_idempotency_key_reused_with_different_payload(svc):
+    svc.create_order(1, 10, 2, idempotency_key="key-retry-3")
+    with pytest.raises(IdempotencyKeyReused):
+        svc.create_order(1, 10, 3, idempotency_key="key-retry-3")
+    assert svc.ticket_type_repo.get_by_id(10).remaining == 3
+
+
+def test_idempotency_key_is_scoped_per_user(svc):
+    a = svc.create_order(1, 10, 1, idempotency_key="shared-key")
+    b = svc.create_order(2, 10, 1, idempotency_key="shared-key")
+    assert a.id != b.id
+    assert svc.ticket_type_repo.get_by_id(10).remaining == 3
+
+
+def test_failed_attempt_can_be_retried_with_same_key(svc):
+    with pytest.raises(SoldOut):
+        svc.create_order(1, 10, 6, idempotency_key="key-retry-4")
+    # Trong hệ thống thật, transaction bị rollback nên đơn chèn tạm cũng biến mất.
+    svc.order_repo.orders.clear()
+    svc.ticket_type_repo.get_by_id(10).remaining = 10
+    order = svc.create_order(1, 10, 6, idempotency_key="key-retry-4")
+    assert order.status == "confirmed"
 
 

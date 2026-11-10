@@ -56,9 +56,18 @@ const messages = {
   Forbidden: 'Bạn không có quyền thực hiện thao tác này.',
   NotFound: 'Không tìm thấy thông tin bạn yêu cầu.',
   InvalidState: 'Đơn vé này đã được huỷ hoặc không thể thay đổi trạng thái.',
+  IdempotencyKeyReused: 'Yêu cầu đặt vé đã thay đổi so với lần gửi trước. Vui lòng kiểm tra lại đơn vé.',
 };
 
-async function request(path, { method = 'GET', body, auth = false } = {}) {
+// Một khoá cho MỘT lần đặt vé; gửi lại đúng khoá này khi retry để server không tạo đơn trùng.
+export function newIdempotencyKey() {
+  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function request(path, { method = 'GET', body, auth = false, headers = {} } = {}) {
   const token = session?.token;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -69,6 +78,7 @@ async function request(path, { method = 'GET', body, auth = false } = {}) {
         Accept: 'application/json',
         ...(body ? { 'Content-Type': 'application/json' } : {}),
         ...(auth && token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: controller.signal,
@@ -128,6 +138,8 @@ export const api = {
   updateTicket: (id, ticketId, body) => request(`/concerts/${id}/ticket-types/${ticketId}`, { method: 'PUT', body, auth: true }),
   deleteTicket: (id, ticketId) => request(`/concerts/${id}/ticket-types/${ticketId}`, { method: 'DELETE', auth: true }),
   orders: () => request('/orders/me', { auth: true }),
-  createOrder: (body) => request('/orders', { method: 'POST', body, auth: true }),
+  createOrder: (body, idempotencyKey) => request('/orders', {
+    method: 'POST', body, auth: true, headers: { 'Idempotency-Key': idempotencyKey },
+  }),
   cancelOrder: (id) => request(`/orders/${id}`, { method: 'DELETE', auth: true }),
 };

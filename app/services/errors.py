@@ -37,3 +37,7 @@ class Forbidden(BusinessError):
 
 class InvalidState(BusinessError):
     pass
+
+
+class IdempotencyKeyReused(BusinessError):
+    """Cùng Idempotency-Key nhưng nội dung đơn khác với lần gửi đầu tiên."""

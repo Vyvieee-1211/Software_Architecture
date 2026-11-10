@@ -314,6 +314,19 @@ Khi ứng dụng đang chạy, truy cập:
 
 Các endpoint `/orders` được bảo vệ bằng dependency xác thực dùng chung. Chi tiết request schema, response schema và mã trạng thái HTTP có thể xem trong Swagger UI tại `/docs`.
 
+### Chống tạo đơn trùng khi retry (Idempotency-Key)
+
+Khi `POST /orders` bị timeout, client không biết đơn đã được tạo hay chưa; gửi lại có thể tạo đơn thứ hai và trừ vé hai lần. Client nên gửi header `Idempotency-Key` (khuyến nghị UUID, 8–64 ký tự `A-Z a-z 0-9 _ - : .`) — **một khoá cho một lần đặt vé** và dùng lại đúng khoá đó khi retry:
+
+|Tình huống|Kết quả|
+|-|-|
+|Lần đầu với khoá mới|`201`, tạo đơn và trừ vé.|
+|Gửi lại cùng khoá, cùng nội dung|`200` + header `Idempotent-Replayed: true`, trả lại đơn cũ, **không** trừ vé thêm.|
+|Cùng khoá nhưng khác `ticket_type_id`/`quantity`|`409 IdempotencyKeyReused`.|
+|Lần trước lỗi nghiệp vụ (vd. `SoldOut`)|Không lưu gì, có thể retry với cùng khoá.|
+
+Khoá được tách theo từng người dùng và được bảo đảm bằng unique index `(user_id, idempotency_key)` trong DB, nên vẫn đúng khi nhiều request trùng khoá đến đồng thời. Request không gửi khoá giữ nguyên hành vi cũ. Frontend tự sinh khoá, tự retry tối đa 2 lần khi lỗi mạng và giữ khoá cho lần bấm đặt lại.
+
 ## 9\. Kiểm thử và kết quả
 Dự án sử dụng pytest để kiểm thử logic đặt vé và API; đồng thời sử dụng Locust trên Kaggle Notebook để đánh giá khả năng xử lý nhiều người dùng đồng thời. Kiểm tra phân tầng cho thấy `app/services/` cần độc lập với FastAPI và SQLAlchemy.
 * Kiểm thử chức năng: Bộ kiểm thử gồm 12 test trong `tests/test_order_service.py` và `tests/test_api.py`. Chạy bằng `pytest -q`; cần ghi nhận số test Passed/Failed từ lần chạy thực tế.

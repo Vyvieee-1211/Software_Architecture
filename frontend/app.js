@@ -1,4 +1,4 @@
-import { api, getSession, setSession, getSavedName, saveName } from './api.js';
+import { api, getSession, setSession, getSavedName, saveName, newIdempotencyKey } from './api.js';
 import { renderManagement } from './management.js';
 
 const main = document.querySelector('#main');
@@ -15,6 +15,10 @@ let authBusy = false;
 let mutationBusy = false;
 let confirmAction = null;
 const drafts = new Map();
+// Lần đặt vé chưa rõ kết quả (timeout/mất mạng): giữ nguyên Idempotency-Key để lần
+// đặt lại cùng hạng vé + số lượng không tạo thêm đơn.
+let pendingBooking = null;
+const BOOKING_RETRIES = 2;
 
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const money = (value) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(Number(value));
@@ -385,21 +389,39 @@ function bookTicket() {
   const ticket = detail.tickets.find((item) => item.id === detail.selectedId);
   const quantity = Number(document.querySelector('#quantity').value);
   openConfirmation({ title: 'Xác nhận đặt vé', label: 'Xác nhận đặt vé', content: `<p>${escape(concert.name)}</p><div class="summary-row"><span>${escape(ticket.name)} × ${quantity}</span><strong>${money(Number(ticket.price) * quantity)}</strong></div><p class="field-hint">Đơn sẽ được xác nhận ngay khi đặt thành công.</p>`, action: async () => {
+    const user = getSession()?.email;
+    if (pendingBooking?.user !== user || pendingBooking.ticketId !== ticket.id || pendingBooking.quantity !== quantity) {
+      pendingBooking = { user, ticketId: ticket.id, quantity, key: newIdempotencyKey() };
+    }
+    const { key } = pendingBooking;
     try {
-      const order = await api.createOrder({ ticket_type_id: ticket.id, quantity });
+      let order;
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          order = await api.createOrder({ ticket_type_id: ticket.id, quantity }, key);
+          break;
+        } catch (error) {
+          // Retry an toàn vì dùng lại cùng khoá: server trả lại đơn cũ nếu lần trước đã thành công.
+          if (error.code !== 'NetworkError' || attempt >= BOOKING_RETRIES) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+        }
+      }
+      if (pendingBooking?.key === key) pendingBooking = null;
       drafts.delete(concert.id);
       dialog.close();
       navigate('/my-orders');
       showNotice(`Đặt vé thành công! Đơn #${order.id} đã được xác nhận.`, 'success');
     } catch (error) {
+      // Lỗi mạng: GIỮ pendingBooking để lần bấm đặt lại dùng cùng khoá. Lỗi khác là kết quả
+      // chắc chắn từ server (không có đơn nào được tạo) nên lần sau dùng khoá mới.
+      if (error.code !== 'NetworkError' && pendingBooking?.key === key) pendingBooking = null;
       if (error.code === 'SoldOut' || error.code === 'SaleNotOpen') {
         dialog.close();
         await renderRoute();
         showNotice(error.message, 'error');
       } else if (error.code === 'NetworkError') {
         dialog.close();
-        navigate('/my-orders');
-        showNotice('Chưa xác định được kết quả đặt vé. Kiểm tra danh sách đơn trước khi đặt lại.', 'error');
+        showNotice('Kết nối đang gián đoạn nên chưa xác nhận được đơn. Bạn có thể bấm “Đặt vé” lại — hệ thống sẽ không tạo đơn trùng.', 'error');
       } else throw error;
     }
   } });

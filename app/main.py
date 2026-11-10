@@ -37,6 +37,7 @@ ERROR_STATUS = {
     errors.SoldOut: 409,
     errors.Forbidden: 403,
     errors.InvalidState: 409,
+    errors.IdempotencyKeyReused: 409,
 }
 
 

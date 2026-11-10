@@ -4,6 +4,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -58,13 +59,19 @@ class TicketType(Base):
 
 class Order(Base):
     __tablename__ = "orders"
-    __table_args__ = (CheckConstraint("quantity > 0", name="ck_quantity_positive"),)
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_quantity_positive"),
+        # Chốt chặn cuối cùng chống tạo đơn trùng khi client retry: mỗi user chỉ có
+        # tối đa một đơn cho mỗi Idempotency-Key. NULL (không gửi key) không bị ràng buộc.
+        Index("uq_orders_user_idempotency_key", "user_id", "idempotency_key", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     ticket_type_id: Mapped[int] = mapped_column(ForeignKey("ticket_types.id"), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="orders")
