@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from app.api.routers import auth, concerts, orders
 from app.repositories.database import init_db
 from app.services import errors
+from app.services.infrastructure_errors import DatabaseUnavailable
 
 
 @asynccontextmanager
@@ -51,3 +52,12 @@ def business_error_handler(request: Request, exc: errors.BusinessError):
 @app.get("/health", tags=["ops"])
 def health():
     return {"status": "ok"}
+
+
+@app.exception_handler(DatabaseUnavailable)
+def database_error_handler(request: Request, exc: DatabaseUnavailable):
+    return JSONResponse(
+        status_code=503,
+        content={"error": "DatabaseUnavailable", "detail": str(exc)},
+        headers={"Retry-After": str(exc.retry_after)},
+    )
