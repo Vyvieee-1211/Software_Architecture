@@ -9,7 +9,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.config import JWT_EXPIRE_MINUTES, JWT_SECRET
+from app.config import ADMIN_EMAILS, JWT_EXPIRE_MINUTES, JWT_SECRET
 from app.repositories.concert_repo import ConcertRepository
 from app.repositories.database import SessionLocal
 from app.repositories.models import User
@@ -72,3 +72,9 @@ def get_current_user(
             return user
 
     return database_policy.run(load_user)
+
+
+def get_admin_user(user: User = Depends(get_current_user)) -> User:
+    if user.email.lower() not in ADMIN_EMAILS:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrator access required")
+    return user

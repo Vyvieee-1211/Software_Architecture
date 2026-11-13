@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routers import auth, concerts, orders
+from app.api.routers import auth, concerts, orders, concert_management
 from app.repositories.database import init_db
 from app.services import errors
 from app.services.infrastructure_errors import DatabaseUnavailable
@@ -28,6 +28,7 @@ app = FastAPI(
 app.include_router(auth.router)
 app.include_router(concerts.router)
 app.include_router(orders.router)
+app.include_router(concert_management.router)
 
 
 ERROR_STATUS = {
@@ -39,6 +40,7 @@ ERROR_STATUS = {
     errors.SoldOut: 409,
     errors.Forbidden: 403,
     errors.InvalidState: 409,
+    errors.IdempotencyKeyReused: 409,
 }
 
 

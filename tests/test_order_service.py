@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.errors import Forbidden, InvalidState, NotFound, SaleNotOpen, SoldOut
+from app.services.errors import (
+    Forbidden, IdempotencyKeyReused, InvalidState, NotFound, SaleNotOpen, SoldOut,
+)
 from app.services.order_service import OrderService
 
 NOW = datetime(2026, 9, 19, 12, 0, 0)
@@ -40,14 +42,24 @@ class FakeOrderRepo:
         self.orders = {}
         self._next = 1
 
-    def create(self, user_id, ticket_type_id, quantity):
+    def create(self, user_id, ticket_type_id, quantity, idempotency_key=None):
         o = SimpleNamespace(
             id=self._next, user_id=user_id, ticket_type_id=ticket_type_id,
             quantity=quantity, status="confirmed", created_at=NOW,
+            idempotency_key=idempotency_key,
         )
         self.orders[o.id] = o
         self._next += 1
         return o
+
+    def create_idempotent(self, user_id, ticket_type_id, quantity, idempotency_key):
+        if self.get_by_idempotency_key(user_id, idempotency_key) is not None:
+            return None
+        return self.create(user_id, ticket_type_id, quantity, idempotency_key)
+
+    def get_by_idempotency_key(self, user_id, idempotency_key):
+        return next((o for o in self.orders.values()
+                     if o.user_id == user_id and o.idempotency_key == idempotency_key), None)
 
     def get_by_id(self, order_id):
         return self.orders.get(order_id)
@@ -203,3 +215,46 @@ def test_cancel_lost_race_does_not_release(svc, uow):
         svc.cancel_order(user_id=1, order_id=order.id)
     assert remaining(uow, 10) == 3
     assert uow.commits == 1
+
+
+def test_retry_with_same_idempotency_key_returns_same_order(svc, uow):
+    first, created = svc.place_order(1, 10, 2, idempotency_key="key-retry-1")
+    again, created_again = svc.place_order(1, 10, 2, idempotency_key="key-retry-1")
+    assert created is True and created_again is False
+    assert again == first
+    assert len(uow.orders.orders) == 1
+    assert remaining(uow, 10) == 3
+    assert uow.commits == 1
+
+
+def test_retry_after_cancel_does_not_rebook(svc, uow):
+    order = svc.create_order(1, 10, 2, idempotency_key="key-retry-2")
+    svc.cancel_order(1, order.id)
+    replay = svc.create_order(1, 10, 2, idempotency_key="key-retry-2")
+    assert replay.id == order.id and replay.status == "cancelled"
+    assert remaining(uow, 10) == 5
+
+
+def test_idempotency_key_reused_with_different_payload(svc, uow):
+    svc.create_order(1, 10, 2, idempotency_key="key-retry-3")
+    with pytest.raises(IdempotencyKeyReused):
+        svc.create_order(1, 10, 3, idempotency_key="key-retry-3")
+    assert remaining(uow, 10) == 3
+
+
+def test_idempotency_key_is_scoped_per_user(svc, uow):
+    a = svc.create_order(1, 10, 1, idempotency_key="shared-key")
+    b = svc.create_order(2, 10, 1, idempotency_key="shared-key")
+    assert a.id != b.id
+    assert remaining(uow, 10) == 3
+
+
+def test_failed_attempt_can_be_retried_with_same_key(svc, uow):
+    with pytest.raises(SoldOut):
+        svc.create_order(1, 10, 6, idempotency_key="key-retry-4")
+    assert uow.commits == 0
+    # Trong hệ thống thật, UoW rollback khi thoát nên đơn chèn tạm cũng biến mất.
+    uow.orders.orders.clear()
+    uow.ticket_types.get_by_id(10).remaining = 10
+    order = svc.create_order(1, 10, 6, idempotency_key="key-retry-4")
+    assert order.status == "confirmed"

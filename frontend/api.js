@@ -1,5 +1,25 @@
 const SESSION_KEY = 'concert.session';
+const PROFILE_KEY = 'concert.profile-names';
 let session = null;
+
+export function getSavedName(email) {
+  try {
+    const profiles = JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}');
+    const name = profiles?.[email.trim().toLowerCase()];
+    return typeof name === 'string' ? name.trim() : '';
+  } catch { return ''; }
+}
+
+export function saveName(email, name) {
+  const fullName = typeof name === 'string' ? name.trim() : '';
+  if (!fullName) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}');
+    const profiles = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+    profiles[email.trim().toLowerCase()] = fullName;
+    localStorage.setItem(PROFILE_KEY, JSON.stringify(profiles));
+  } catch { /* A blocked browser store must not interrupt registration. */ }
+}
 
 try {
   const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
@@ -36,9 +56,18 @@ const messages = {
   Forbidden: 'Bạn không có quyền thực hiện thao tác này.',
   NotFound: 'Không tìm thấy thông tin bạn yêu cầu.',
   InvalidState: 'Đơn vé này đã được huỷ hoặc không thể thay đổi trạng thái.',
+  IdempotencyKeyReused: 'Yêu cầu đặt vé đã thay đổi so với lần gửi trước. Vui lòng kiểm tra lại đơn vé.',
 };
 
-async function request(path, { method = 'GET', body, auth = false } = {}) {
+// Một khoá cho MỘT lần đặt vé; gửi lại đúng khoá này khi retry để server không tạo đơn trùng.
+export function newIdempotencyKey() {
+  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function request(path, { method = 'GET', body, auth = false, headers = {} } = {}) {
   const token = session?.token;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -49,11 +78,13 @@ async function request(path, { method = 'GET', body, auth = false } = {}) {
         Accept: 'application/json',
         ...(body ? { 'Content-Type': 'application/json' } : {}),
         ...(auth && token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: controller.signal,
       cache: 'no-store',
     });
+    if (response.status === 204) return null;
     let data;
     try {
       data = await response.json();
@@ -68,6 +99,14 @@ async function request(path, { method = 'GET', body, auth = false } = {}) {
         window.dispatchEvent(new Event('session-expired'));
       }
       let message = messages[data?.error];
+      const managementErrors = {
+        'Cannot delete a concert with order history': 'Concert đã có lịch sử đặt vé nên không thể xóa.',
+        'Cannot delete a ticket type with order history': 'Hạng vé đã có lịch sử đặt vé nên không thể xóa.',
+        'Cannot change the price of tickets with order history': 'Không thể đổi giá hạng vé đã có đơn đặt. Bạn có thể tạo hạng vé mới.',
+        'Total quantity cannot be lower than reserved tickets': 'Tổng số vé không được thấp hơn số vé đang được đặt.',
+        'Administrator access required': 'Chỉ tài khoản quản trị mới được quản lý concert.',
+      };
+      message = managementErrors[data?.detail] || message;
       if (!message && response.status === 422) message = 'Thông tin chưa hợp lệ. Vui lòng kiểm tra các trường và số lượng vé (1–10).';
       if (!message && response.status === 401) message = auth ? 'Vui lòng đăng nhập lại để tiếp tục.' : messages.InvalidCredentials;
       if (!message && response.status === 404) message = messages.NotFound;
@@ -91,7 +130,16 @@ export const api = {
   ticketTypes: (id) => request(`/concerts/${id}/ticket-types`),
   register: (body) => request('/auth/register', { method: 'POST', body }),
   login: (body) => request('/auth/login', { method: 'POST', body }),
+  me: () => request('/auth/me', { auth: true }),
+  createConcert: (body) => request('/concerts', { method: 'POST', body, auth: true }),
+  updateConcert: (id, body) => request(`/concerts/${id}`, { method: 'PUT', body, auth: true }),
+  deleteConcert: (id) => request(`/concerts/${id}`, { method: 'DELETE', auth: true }),
+  createTicket: (id, body) => request(`/concerts/${id}/ticket-types`, { method: 'POST', body, auth: true }),
+  updateTicket: (id, ticketId, body) => request(`/concerts/${id}/ticket-types/${ticketId}`, { method: 'PUT', body, auth: true }),
+  deleteTicket: (id, ticketId) => request(`/concerts/${id}/ticket-types/${ticketId}`, { method: 'DELETE', auth: true }),
   orders: () => request('/orders/me', { auth: true }),
-  createOrder: (body) => request('/orders', { method: 'POST', body, auth: true }),
+  createOrder: (body, idempotencyKey) => request('/orders', {
+    method: 'POST', body, auth: true, headers: { 'Idempotency-Key': idempotencyKey },
+  }),
   cancelOrder: (id) => request(`/orders/${id}`, { method: 'DELETE', auth: true }),
 };

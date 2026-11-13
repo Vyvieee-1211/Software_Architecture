@@ -75,6 +75,108 @@ def test_login_success_returns_jwt(client):
     assert protected.json() == []
 
 
+def test_current_profile_returns_name_without_password(client):
+    headers = auth_header(client)
+    response = client.get("/auth/me", headers=headers)
+    assert response.status_code == 200
+    assert response.json()["full_name"] == "A"
+    assert response.json()["email"] == "a@example.com"
+    assert "password_hash" not in response.json()
+    assert client.get("/auth/me").status_code == 401
+    assert client.get("/auth/me", headers={"Authorization": "Bearer invalid"}).status_code == 401
+
+
+def management_body():
+    return {
+        "name": "New Live Concert", "artist": "Live Artist", "venue": "TP.HCM",
+        "start_time": "2027-06-01T20:00:00+07:00",
+        "sale_open_time": "2026-01-01T09:00:00+07:00",
+        "ticket_types": [{"name": "VIP", "price": "1250000.00", "total_quantity": 20}],
+    }
+
+
+def test_management_requires_admin(client, monkeypatch):
+    from app.api import deps
+    monkeypatch.setattr(deps, "ADMIN_EMAILS", frozenset({"admin@example.com"}))
+    regular = auth_header(client, "regular@example.com")
+    assert client.post("/concerts", json=management_body()).status_code == 401
+    assert client.post("/concerts", json=management_body(), headers=regular).status_code == 403
+    assert client.put("/concerts/1", json=management_body(), headers=regular).status_code == 403
+    assert client.delete("/concerts/1", headers=regular).status_code == 403
+    assert client.post("/concerts/1/ticket-types", json=management_body()["ticket_types"][0], headers=regular).status_code == 403
+
+
+def test_manage_concert_and_ticket_lifecycle(client, monkeypatch):
+    monkeypatch.setattr(deps, "ADMIN_EMAILS", frozenset({"admin@example.com"}))
+    admin = auth_header(client, "admin@example.com")
+    body = management_body()
+    created = client.post("/concerts", json=body, headers=admin)
+    assert created.status_code == 201
+    concert_id = created.json()["id"]
+    assert created.json()["start_time"] == "2027-06-01T13:00:00"
+    assert any(c["id"] == concert_id for c in client.get("/concerts").json())
+    ticket = client.get(f"/concerts/{concert_id}/ticket-types").json()[0]
+    assert ticket["remaining"] == ticket["total_quantity"] == 20
+    fields = {k: v for k, v in body.items() if k != "ticket_types"}
+    fields["name"] = "Updated Live Concert"
+    assert client.put(f"/concerts/{concert_id}", json=fields, headers=admin).json()["name"] == fields["name"]
+    added = client.post(f"/concerts/{concert_id}/ticket-types", headers=admin, json={"name": "GA", "price": "500000", "total_quantity": 30})
+    assert added.status_code == 201
+    assert client.delete(f"/concerts/{concert_id}/ticket-types/{added.json()['id']}", headers=admin).status_code == 204
+    ticket_path = f"/concerts/{concert_id}/ticket-types/{ticket['id']}"
+    changed = client.put(ticket_path, headers=admin, json={"name": "VIP Plus", "price": "1300000", "total_quantity": 25})
+    assert changed.status_code == 200
+    assert changed.json()["remaining"] == 25
+    assert client.delete(f"/concerts/{concert_id}", headers=admin).status_code == 204
+    assert client.get(f"/concerts/{concert_id}").status_code == 404
+    assert client.get(f"/concerts/{concert_id}/ticket-types").status_code == 404
+
+
+def test_management_preserves_orders_and_inventory(client, monkeypatch):
+    monkeypatch.setattr(deps, "ADMIN_EMAILS", frozenset({"admin@example.com"}))
+    admin = auth_header(client, "admin@example.com")
+    buyer = auth_header(client, "buyer@example.com")
+    concert_id = client.post("/concerts", json=management_body(), headers=admin).json()["id"]
+    ticket = client.get(f"/concerts/{concert_id}/ticket-types").json()[0]
+    ticket_path = f"/concerts/{concert_id}/ticket-types/{ticket['id']}"
+    order = client.post("/orders", headers=buyer, json={"ticket_type_id": ticket["id"], "quantity": 3})
+    assert order.status_code == 201
+    fields = {"name": "VIP", "price": "1250000", "total_quantity": 30}
+    changed = client.put(ticket_path, headers=admin, json=fields)
+    assert changed.status_code == 200
+    assert changed.json()["remaining"] == 27
+    assert client.put(ticket_path, headers=admin, json={**fields, "total_quantity": 2}).status_code == 409
+    assert client.put(ticket_path, headers=admin, json={**fields, "price": "2000000"}).status_code == 409
+    assert client.delete(ticket_path, headers=admin).status_code == 409
+    assert client.delete(f"/concerts/{concert_id}", headers=admin).status_code == 409
+    assert client.delete(f"/orders/{order.json()['id']}", headers=buyer).status_code == 200
+    assert client.get(f"/concerts/{concert_id}/ticket-types").json()[0]["remaining"] == 30
+    assert client.delete(f"/concerts/{concert_id}", headers=admin).status_code == 409
+
+
+def test_management_ticket_ids_are_scoped_to_concert(client, monkeypatch):
+    monkeypatch.setattr(deps, "ADMIN_EMAILS", frozenset({"admin@example.com"}))
+    admin = auth_header(client, "admin@example.com")
+    concert_id = client.post("/concerts", json=management_body(), headers=admin).json()["id"]
+    ticket = client.get(f"/concerts/{concert_id}/ticket-types").json()[0]
+    assert client.put(f"/concerts/1/ticket-types/{ticket['id']}", headers=admin, json=management_body()["ticket_types"][0]).status_code == 404
+    assert client.delete(f"/concerts/1/ticket-types/{ticket['id']}", headers=admin).status_code == 404
+    assert client.delete("/concerts/999999", headers=admin).status_code == 404
+
+
+@pytest.mark.parametrize("changes", [
+    {"name": "   "}, {"sale_open_time": "2028-01-01T00:00:00Z"},
+    {"ticket_types": []}, {"ticket_types": [{"name": "VIP", "price": -1, "total_quantity": 10}]},
+    {"ticket_types": [{"name": "VIP", "price": 100, "total_quantity": 0}]},
+])
+def test_management_validates_creation_without_partial_data(client, monkeypatch, changes):
+    monkeypatch.setattr(deps, "ADMIN_EMAILS", frozenset({"admin@example.com"}))
+    admin = auth_header(client, "admin@example.com")
+    before = client.get("/concerts").json()
+    assert client.post("/concerts", headers=admin, json={**management_body(), **changes}).status_code == 422
+    assert client.get("/concerts").json() == before
+
+
 @pytest.mark.parametrize("token_case", ["expired", "forged", "tampered"])
 @pytest.mark.parametrize("method,path,body", [
     ("GET", "/orders/me", None),

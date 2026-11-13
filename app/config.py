@@ -23,3 +23,5 @@ DB_RETRY_MAX_SECONDS = _number("DB_RETRY_MAX_SECONDS", 0.5, float, 0)
 DB_BREAKER_FAILURE_THRESHOLD = _number("DB_BREAKER_FAILURE_THRESHOLD", 5, int, 1)
 DB_BREAKER_WINDOW_SECONDS = _number("DB_BREAKER_WINDOW_SECONDS", 30, float, 0.01)
 DB_BREAKER_RECOVERY_SECONDS = _number("DB_BREAKER_RECOVERY_SECONDS", 10, float, 0.01)
+
+ADMIN_EMAILS = frozenset(email.strip().lower() for email in os.getenv("ADMIN_EMAILS", "demo@example.com").split(",") if email.strip())

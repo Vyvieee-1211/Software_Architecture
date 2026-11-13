@@ -318,6 +318,19 @@ Khi ứng dụng đang chạy, truy cập:
 
 Các endpoint `/orders` được bảo vệ bằng dependency xác thực dùng chung. Chi tiết request schema, response schema và mã trạng thái HTTP có thể xem trong Swagger UI tại `/docs`.
 
+### Chống tạo đơn trùng khi retry (Idempotency-Key)
+
+Khi `POST /orders` bị timeout, client không biết đơn đã được tạo hay chưa; gửi lại có thể tạo đơn thứ hai và trừ vé hai lần. Client nên gửi header `Idempotency-Key` (khuyến nghị UUID, 8–64 ký tự `A-Z a-z 0-9 _ - : .`) — **một khoá cho một lần đặt vé** và dùng lại đúng khoá đó khi retry:
+
+|Tình huống|Kết quả|
+|-|-|
+|Lần đầu với khoá mới|`201`, tạo đơn và trừ vé.|
+|Gửi lại cùng khoá, cùng nội dung|`200` + header `Idempotent-Replayed: true`, trả lại đơn cũ, **không** trừ vé thêm.|
+|Cùng khoá nhưng khác `ticket_type_id`/`quantity`|`409 IdempotencyKeyReused`.|
+|Lần trước lỗi nghiệp vụ (vd. `SoldOut`)|Không lưu gì, có thể retry với cùng khoá.|
+
+Khoá được tách theo từng người dùng và được bảo đảm bằng unique index `(user_id, idempotency_key)` trong DB, nên vẫn đúng khi nhiều request trùng khoá đến đồng thời. Request không gửi khoá giữ nguyên hành vi cũ. Frontend tự sinh khoá, tự retry tối đa 2 lần khi lỗi mạng và giữ khoá cho lần bấm đặt lại.
+
 ## 9\. Kiểm thử và kết quả
 
 ### 9.1. Kiểm thử chức năng
