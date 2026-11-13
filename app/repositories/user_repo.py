@@ -19,3 +19,8 @@ class UserRepository:
         self.db.add(user)
         self.db.flush()
         return user
+
+    def lock(self, user_id: int) -> bool:
+        """Khóa dòng user đến hết transaction để tuần tự hóa các thao tác của cùng một người
+        (vd. kiểm tra giới hạn vé đang giữ). Trả False nếu user không tồn tại."""
+        return self.db.scalar(select(User.id).where(User.id == user_id).with_for_update()) is not None

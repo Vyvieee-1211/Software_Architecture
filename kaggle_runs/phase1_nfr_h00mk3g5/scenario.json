@@ -1,0 +1,26 @@
+{
+  "counters": {
+    "started": 100,
+    "requests": 10007,
+    "request_failures": 0,
+    "http_4xx_5xx": 19,
+    "transport_errors": 0,
+    "login.ok": 100,
+    "logged_in": 100,
+    "concerts.ok": 1988,
+    "tickets.ok": 160,
+    "ready": 100,
+    "buy.ok": 110,
+    "tickets_acknowledged": 163,
+    "detail.ok": 979,
+    "orders.ok": 6641,
+    "buy.sold_out": 19,
+    "cancel.ok": 10
+  },
+  "errors": [],
+  "steady_started_ts": 1791234928.180639,
+  "steady_ended_ts": 1791235048.2512743,
+  "observed_steady_seconds": 120.0706353187561,
+  "peak_ready_users": 100,
+  "steady_completed": true
+}

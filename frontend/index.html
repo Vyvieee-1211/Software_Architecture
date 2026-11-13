@@ -1,42 +1,41 @@
 <!doctype html>
 <html lang="vi">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#7155d8" />
-    <meta name="description" content="Khám phá concert, chọn hạng vé và quản lý đơn vé của bạn." />
-    <title>HIT THE VIBE — Đặt vé âm nhạc</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%237155d8'/%3E%3Ctext x='14' y='46' font-size='43' fill='white'%3E♫%3C/text%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="/styles.css" />
-    <script type="module" src="/app.js"></script>
-  </head>
-  <body>
-    <a class="skip-link" href="#main">Đến nội dung chính</a>
-    <header class="site-header">
-      <div class="header-inner">
-        <a class="brand" href="#/" aria-label="HIT THE VIBE — Trang chủ">
-          <span class="brand-mark" aria-hidden="true">♫</span>
-          <span><span class="brand-name">HIT THE VIBE</span><span class="brand-caption">Âm nhạc. Gặp gỡ. Kỷ niệm.</span></span>
-        </a>
-        <nav class="nav" aria-label="Điều hướng chính">
-          <a class="nav-link" href="#/" data-nav="home">Khám phá</a>
-          <a class="nav-link" href="#/my-orders" data-nav="orders">Đơn vé của tôi</a>
-        </nav>
-        <div class="account" id="account"></div>
-      </div>
-    </header>
-    <div class="container" id="notices" aria-live="polite" aria-atomic="true"></div>
-    <main class="container" id="main" tabindex="-1"></main>
-    <footer class="site-footer"><div class="container"><span class="footer-brand">HIT THE VIBE</span><span>Một tấm vé, một trải nghiệm đáng nhớ.</span></div></footer>
-    <dialog class="modal" id="confirm-dialog" aria-labelledby="confirm-title">
-      <h2 id="confirm-title"></h2>
-      <div id="confirm-content"></div>
-      <p id="confirm-error" class="form-error" role="alert" hidden></p>
-      <div class="modal-actions">
-        <button class="button button-secondary" id="confirm-cancel" type="button">Quay lại</button>
-        <button class="button button-primary" id="confirm-submit" type="button">Xác nhận</button>
-      </div>
-    </dialog>
-    <noscript><p class="container">Vui lòng bật JavaScript để sử dụng chức năng đặt vé.</p></noscript>
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#101010" />
+  <meta name="description" content="HIT THE VIBE — khám phá concert, chọn hạng vé và sống trọn những đêm nhạc." />
+  <title>HIT THE VIBE — Concert & vé sự kiện</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23834bff'/%3E%3Cpath d='M16 20v24m10-16v8m12-16v24m10-16v8' stroke='white' stroke-width='5'/%3E%3C/svg%3E" />
+  <link rel="preload" href="/assets/concert-night.png" as="image" />
+  <link rel="stylesheet" href="/styles.css" />
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Đến nội dung chính</a>
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="#/" aria-label="HIT THE VIBE — Trang chủ"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square"><path d="M3 4v16m6-11v6m6-11v16m6-11v6"/></svg></span><span class="brand-name">HIT THE VIBE<span>LIVE</span></span></a>
+      <form class="nav-search" id="nav-search-form" role="search"><label class="sr-only" for="nav-search">Tìm concert, nghệ sĩ, địa điểm</label><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg><input id="nav-search" name="query" type="search" placeholder="Tìm concert, nghệ sĩ, địa điểm…" autocomplete="off"><button type="submit" aria-label="Tìm kiếm">↗</button></form>
+      <nav class="nav" aria-label="Điều hướng chính"><a class="nav-link" href="#/" data-nav="home">Khám phá</a><a class="nav-link" href="#/concerts" data-nav="concerts">Concert</a><a class="nav-link" href="#/my-orders" data-nav="orders">Vé của tôi</a></nav>
+      <a class="nav-link" id="manage-link" href="#/manage" data-nav="manage" hidden>Quản lý concert</a>
+      <div class="account" id="account"></div>
+    </div>
+  </header>
+  <div class="container" id="notices" aria-live="polite" aria-atomic="true"></div>
+  <main id="main" tabindex="-1"></main>
+  <footer class="site-footer">
+    <div class="container footer-top"><a href="#/" class="footer-brand">HIT THE VIBE<span>↗</span></a><p>Âm nhạc chỉ thật sự bắt đầu<br>khi bạn ở đó.</p><span class="footer-live"><i aria-hidden="true"></i> LIVE MUSIC. REAL MOMENTS.</span></div>
+    <div class="container footer-grid">
+      <div><h2>Sự kiện & concert</h2><a href="#/concerts">Tất cả sự kiện</a><button data-action="discover-open">Đang mở bán</button><button data-action="discover-upcoming">Sắp mở bán</button><button data-action="discover-soon">Sắp diễn ra</button></div>
+      <div><h2>Khám phá Việt Nam</h2><button data-action="location-discovery" data-city="hcm">Concert tại TP.HCM</button><button data-action="location-discovery" data-city="hanoi">Concert tại Hà Nội</button><button data-action="location-discovery" data-city="dalat">Concert tại Đà Lạt</button></div>
+      <div><h2>Vé & tài khoản</h2><a href="#/my-orders">Đơn vé của tôi</a><a href="#/login">Đăng nhập</a><a href="#/register">Tạo tài khoản</a><a href="#/my-orders">Xem hoặc hủy đơn vé</a></div>
+      <div class="footer-help"><h2>Cần biết trước khi đặt vé</h2><details><summary>Tôi đặt vé như thế nào?</summary><p>Chọn concert, chọn một hạng vé và số lượng, đăng nhập rồi xác nhận đơn. Mỗi đơn tối đa 10 vé.</p></details><details><summary>Tôi xem vé đã đặt ở đâu?</summary><p>Đăng nhập và mở “Vé của tôi” để xem đơn vé và trạng thái xác nhận.</p></details><details><summary>Tôi có thể hủy đơn không?</summary><p>Bạn có thể hủy đơn đang ở trạng thái “Đã xác nhận” trong mục “Vé của tôi”. Hãy kiểm tra thông tin trước khi xác nhận hủy.</p></details></div>
+    </div>
+    <div class="container footer-bottom"><span>© HIT THE VIBE / CONCERT & EVENT TICKETS</span><span>Made for the moments that matter.</span><a href="#/">Khám phá đêm nhạc ↑</a></div>
+    <div class="footer-wordmark" aria-hidden="true">HIT THE VIBE.</div>
+  </footer>
+  <dialog class="modal" id="confirm-dialog" aria-labelledby="confirm-title"><p class="eyebrow">HIT THE VIBE / ĐƠN VÉ</p><h2 id="confirm-title"></h2><div id="confirm-content"></div><p id="confirm-error" class="form-error" role="alert" hidden></p><div class="modal-actions"><button class="button button-secondary" id="confirm-cancel" type="button">Quay lại</button><button class="button button-primary" id="confirm-submit" type="button">Xác nhận</button></div></dialog>
+  <noscript><p class="container">Vui lòng bật JavaScript để sử dụng chức năng đặt vé.</p></noscript>
+</body>
 </html>
