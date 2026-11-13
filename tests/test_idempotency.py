@@ -3,13 +3,14 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
 from app.repositories.database import init_db
 from app.repositories.models import Concert, Order, TicketType, User
 from app.repositories.unit_of_work import SqlAlchemyUnitOfWork
 from app.services.order_service import OrderService
+from tests.conftest import add_ticket_type
 from tests.test_api import auth_header, client  # noqa: F401  (fixture dùng chung)
 
 KEY = "3f6c1b8e-6a4d-4c1e-9d3b-0f2a7c9e5b11"
@@ -106,7 +107,7 @@ def file_db(tmp_path):
         concert = Concert(name="Race", start_time=now + timedelta(days=1), sale_open_time=now - timedelta(hours=1))
         db.add_all([concert, User(email="race@example.com", password_hash="x")])
         db.flush()
-        db.add(TicketType(concert_id=concert.id, name="GA", price=1, total_quantity=100, remaining=100))
+        add_ticket_type(db, concert_id=concert.id, name="GA", price=1, total_quantity=100)
         db.commit()
     yield sessions
     engine.dispose()
@@ -140,24 +141,3 @@ def test_concurrent_retries_with_same_key_create_exactly_one_order(file_db):
         assert db.scalar(select(func.count()).select_from(Order)) == 1
         assert db.get(TicketType, 1).remaining == 97
 
-
-def test_init_db_upgrades_existing_orders_table(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
-    with engine.begin() as connection:
-        connection.execute(text(
-            "CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, "
-            "ticket_type_id INTEGER NOT NULL, quantity INTEGER NOT NULL, "
-            "status VARCHAR(20) NOT NULL, created_at DATETIME)"
-        ))
-        connection.execute(text("INSERT INTO orders VALUES (1, 1, 1, 2, 'confirmed', NULL)"))
-
-    init_db(engine)
-    init_db(engine)  # chạy lại không lỗi
-
-    inspector = inspect(engine)
-    assert "idempotency_key" in {c["name"] for c in inspector.get_columns("orders")}
-    assert any(i["name"] == "uq_orders_user_idempotency_key" and i["unique"]
-               for i in inspector.get_indexes("orders"))
-    with engine.connect() as connection:
-        assert connection.execute(text("SELECT quantity FROM orders WHERE id = 1")).scalar() == 2
-    engine.dispose()

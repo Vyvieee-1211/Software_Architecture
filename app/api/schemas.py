@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from typing import Literal
+
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
@@ -37,7 +39,8 @@ class ProfileResponse(UserResponse):
 class TicketTypeInput(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     price: Decimal = Field(ge=0, max_digits=12, decimal_places=2)
-    total_quantity: int = Field(ge=1, le=10000000)
+    # Mỗi vé là một dòng trong bảng tickets (sinh sẵn), nên giới hạn số vé mỗi hạng.
+    total_quantity: int = Field(ge=1, le=100000)
 
     @field_validator("name")
     @classmethod
@@ -109,7 +112,42 @@ class OrderResponse(BaseModel):
     user_id: int
     ticket_type_id: int
     quantity: int
-    status: str
+    status: str = Field(description="held | paid | expired | cancelled | failed")
+    unit_price: Decimal
+    total_amount: Decimal
+    expires_at: datetime = Field(description="Hạn giữ chỗ (UTC). Quá hạn mà chưa thanh toán thì vé được trả về kho.")
+    paid_at: datetime | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class TicketResponse(BaseModel):
+    id: int
+    ticket_type_id: int
+    seat_no: str
+    status: str = Field(description="held | sold")
+    qr_code: str | None = Field(description="Nội dung mã QR; chỉ có khi đơn đã thanh toán.")
+
+    model_config = {"from_attributes": True}
+
+
+class PaymentResponse(BaseModel):
+    order_id: int
+    payment_id: str
+    payment_url: str = Field(description="Chuyển khách tới địa chỉ này để thanh toán.")
+    amount: Decimal
+    provider: str
+
+    model_config = {"from_attributes": True}
+
+
+class WebhookResponse(BaseModel):
+    result: str = Field(description="paid | failed | refund_pending | duplicate")
+    order_id: int
+    order_status: str
+
+
+class MockPayRequest(BaseModel):
+    token: str
+    result: Literal["success", "failed"] = "success"

@@ -9,7 +9,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app import config
 from app.config import ADMIN_EMAILS, JWT_EXPIRE_MINUTES, JWT_SECRET
+from app.integrations import build_payment_gateway
 from app.repositories.concert_repo import ConcertRepository
 from app.repositories.database import SessionLocal
 from app.repositories.models import User
@@ -21,6 +23,9 @@ from app.services.auth_service import AuthService
 from app.services.concert_service import ConcertService
 from app.services.errors import InvalidToken
 from app.services.order_service import OrderService
+from app.services.payment_gateway import PaymentGateway
+from app.services.payment_service import PaymentService
+from app.services.ticket_codes import TicketCodes
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -45,8 +50,30 @@ def get_concert_service(db: Session = Depends(get_db, scope="function")) -> Conc
     return ConcertService(ConcertRepository(db), TicketTypeRepository(db))
 
 
+def _uow() -> SqlAlchemyUnitOfWork:
+    return SqlAlchemyUnitOfWork(SessionLocal)
+
+
 def get_order_service() -> OrderService:
-    return OrderService(lambda: SqlAlchemyUnitOfWork(SessionLocal), execute=database_policy.run)
+    return OrderService(
+        _uow, execute=database_policy.run,
+        hold_minutes=config.HOLD_MINUTES,
+        max_per_order=config.MAX_TICKETS_PER_ORDER,
+        max_held_per_user=config.MAX_HELD_TICKETS_PER_USER,
+    )
+
+
+# Adapter cổng thanh toán và bộ ký mã QR không có trạng thái theo request: tạo một lần.
+payment_gateway = build_payment_gateway()
+ticket_codes = TicketCodes(config.TICKET_QR_SECRET)
+
+
+def get_payment_gateway() -> PaymentGateway:
+    return payment_gateway
+
+
+def get_payment_service(gateway: PaymentGateway = Depends(get_payment_gateway)) -> PaymentService:
+    return PaymentService(_uow, gateway, ticket_codes.issue, execute=database_policy.run)
 
 
 _bearer = HTTPBearer(auto_error=False)

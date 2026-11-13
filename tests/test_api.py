@@ -1,7 +1,4 @@
-import os
 from datetime import datetime, timedelta, timezone
-
-os.environ["DATABASE_URL"] = "sqlite://"
 
 import jwt
 import pytest
@@ -15,6 +12,8 @@ from app.config import JWT_SECRET
 from app.main import app
 from app.repositories import database
 from app.repositories.models import Base, Concert, TicketType
+from app.repositories.ticket_repo import TicketRepository
+from tests.conftest import add_ticket_type
 
 
 @pytest.fixture
@@ -32,7 +31,7 @@ def client(monkeypatch):
                     start_time=now + timedelta(days=10), sale_open_time=now - timedelta(hours=1))
         db.add(c)
         db.flush()
-        db.add(TicketType(concert_id=c.id, name="GA", price=100, total_quantity=3, remaining=3))
+        add_ticket_type(db, concert_id=c.id, name="GA", price=100, total_quantity=3)
         db.commit()
 
     try:
@@ -319,10 +318,8 @@ def test_public_ticket_types(client):
             start_time=now + timedelta(days=20), sale_open_time=now - timedelta(hours=1),
         ))
         db.flush()
-        db.add_all([
-            TicketType(id=2, concert_id=1, name="VIP", price=200, total_quantity=2, remaining=2),
-            TicketType(id=3, concert_id=2, name="Other GA", price=100, total_quantity=10, remaining=10),
-        ])
+        add_ticket_type(db, id=2, concert_id=1, name="VIP", price=200, total_quantity=2)
+        add_ticket_type(db, id=3, concert_id=2, name="Other GA", price=100, total_quantity=10)
         db.commit()
 
     response = client.get("/concerts/1/ticket-types")
@@ -358,7 +355,7 @@ def test_order_lifecycle(client):
     assert order["user_id"] == user_id
     assert order["ticket_type_id"] == 1
     assert order["quantity"] == 2
-    assert order["status"] == "confirmed"
+    assert order["status"] == "held"
     order_id = order["id"]
     assert client.get("/concerts/1/ticket-types").json()[0]["remaining"] == 1
 
@@ -417,6 +414,7 @@ def test_create_order_valid_quantity_boundaries(client, quantity):
         ticket_type = db.get(TicketType, 1)
         ticket_type.total_quantity = 20
         ticket_type.remaining = 20
+        TicketRepository(db).generate(1, 17)
         db.commit()
 
     response = client.post(
@@ -425,7 +423,7 @@ def test_create_order_valid_quantity_boundaries(client, quantity):
     assert response.status_code == 201
     order = response.json()
     assert order["quantity"] == quantity
-    assert order["status"] == "confirmed"
+    assert order["status"] == "held"
     assert client.get("/concerts/1/ticket-types").json()[0]["remaining"] == 20 - quantity
     assert client.get("/orders/me", headers=headers).json() == [order]
 

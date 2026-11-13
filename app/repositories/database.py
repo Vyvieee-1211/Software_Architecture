@@ -1,12 +1,12 @@
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine import make_url
 
 from app import config
-from app.repositories.models import Base, Order
+from app.repositories.models import Base
 
 def build_engine(url):
-    """Configure bounded pool/SQLite lock waits; preserve in-memory test support."""
+    """Configure bounded pool and lock waits; preserve SQLite in-memory test support."""
     parsed = make_url(url)
     options = {"pool_pre_ping": True}
     sqlite = parsed.get_backend_name() == "sqlite"
@@ -14,6 +14,13 @@ def build_engine(url):
         options["connect_args"] = {
             "check_same_thread": False,
             "timeout": config.DB_SQLITE_BUSY_TIMEOUT_SECONDS,
+        }
+    elif parsed.get_backend_name() == "postgresql":
+        # Giới hạn chờ khóa dòng và thời gian chạy một câu lệnh, để request không treo vô hạn.
+        settings = {"lock_timeout": config.DB_PG_LOCK_TIMEOUT_MS,
+                    "statement_timeout": config.DB_PG_STATEMENT_TIMEOUT_MS}
+        options["connect_args"] = {
+            "options": " ".join(f"-c {name}={value}" for name, value in settings.items() if value)
         }
     # SQLite memory databases use SingletonThreadPool, which has no pool_timeout.
     if not sqlite or (parsed.database and parsed.database != ":memory:"):
@@ -30,17 +37,6 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def init_db(bind=None) -> None:
-    bind = bind or engine
-    Base.metadata.create_all(bind=bind)
-    _migrate_order_idempotency_key(bind)
-
-
-def _migrate_order_idempotency_key(bind) -> None:
-    """Nâng cấp DB tạo từ phiên bản cũ: create_all không thêm cột vào bảng đã có."""
-    columns = {column["name"] for column in inspect(bind).get_columns("orders")}
-    if "idempotency_key" in columns:
-        return
-    with bind.begin() as connection:
-        connection.execute(text("ALTER TABLE orders ADD COLUMN idempotency_key VARCHAR(64)"))
-        for index in Order.__table__.indexes:
-            index.create(connection, checkfirst=True)
+    """Tạo các bảng còn thiếu. create_all KHÔNG sửa bảng đã có: DB tạo từ lược đồ cũ
+    (trước khi có giữ chỗ/thanh toán) phải được tạo lại từ đầu."""
+    Base.metadata.create_all(bind=bind or engine)

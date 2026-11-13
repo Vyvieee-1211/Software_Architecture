@@ -20,7 +20,7 @@ function createFrontendServer({ apiOrigin = 'http://127.0.0.1:8000' } = {}) {
   }
   const transport = origin.protocol === 'https:' ? https : http;
   return http.createServer((request, response) => {
-    if (/^\/(?:auth|concerts|orders|health)(?:\/|\?|$)/.test(request.url)) {
+    if (/^\/(?:auth|concerts|orders|payments|mock-gateway|health)(?:\/|\?|$)/.test(request.url)) {
       const upstream = transport.request(new URL(request.url, origin), {
         method: request.method,
         headers: { ...request.headers, host: origin.host },

@@ -6,22 +6,32 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routers import auth, concerts, orders, concert_management
+from app import config
+from app.api.deps import get_order_service
+from app.api.routers import auth, concerts, orders, concert_management, mock_gateway, payments
 from app.repositories.database import init_db
 from app.services import errors
 from app.services.infrastructure_errors import DatabaseUnavailable
+from app.sweeper import HoldSweeper
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    sweeper = None
+    if config.HOLD_SWEEP_INTERVAL_SECONDS > 0:
+        sweeper = HoldSweeper(lambda: get_order_service().expire_holds(),
+                              config.HOLD_SWEEP_INTERVAL_SECONDS)
+        sweeper.start()
     yield
+    if sweeper is not None:
+        sweeper.stop()
 
 
 app = FastAPI(
     title="Concert Ticketing API",
-    version="0.1.0",
-    description="Pha 1 — backend đặt vé concert, kiến trúc phân tầng.",
+    version="0.2.0",
+    description="Backend đặt vé concert: giữ chỗ có hạn, thanh toán qua cổng bên thứ ba, xuất vé QR.",
     lifespan=lifespan,
 )
 
@@ -29,6 +39,9 @@ app.include_router(auth.router)
 app.include_router(concerts.router)
 app.include_router(orders.router)
 app.include_router(concert_management.router)
+app.include_router(payments.router)
+if config.PAYMENT_PROVIDER == "mock":
+    app.include_router(mock_gateway.router)
 
 
 ERROR_STATUS = {
@@ -41,6 +54,11 @@ ERROR_STATUS = {
     errors.Forbidden: 403,
     errors.InvalidState: 409,
     errors.IdempotencyKeyReused: 409,
+    errors.SaleClosed: 400,
+    errors.HoldLimitExceeded: 409,
+    errors.HoldExpired: 409,
+    errors.InvalidWebhookSignature: 401,
+    errors.PaymentGatewayError: 502,
 }
 
 

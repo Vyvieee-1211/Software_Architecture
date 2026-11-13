@@ -10,6 +10,7 @@ from threading import Lock
 import time
 
 from sqlalchemy.exc import DBAPIError, TimeoutError
+from sqlalchemy.orm.exc import StaleDataError
 
 from app import config
 from app.services.errors import BusinessError
@@ -29,6 +30,10 @@ def classify_failure(exc):
         return Failure("pool_timeout", retryable=True)
     if isinstance(exc, DatabaseUnavailable):
         return Failure("cleanup_failure")
+    if isinstance(exc, StaleDataError):
+        # Khóa lạc quan (tickets.version): dòng đã bị giao dịch khác sửa. Chưa có gì
+        # được commit nên chạy lại cả nghiệp vụ là an toàn.
+        return Failure("stale_version", retryable=True)
     if not isinstance(exc, DBAPIError):
         return None
     if exc.connection_invalidated:
@@ -41,7 +46,20 @@ def classify_failure(exc):
         if code in (sqlite3.SQLITE_CANTOPEN, sqlite3.SQLITE_IOERR,
                     sqlite3.SQLITE_FULL, sqlite3.SQLITE_READONLY):
             return Failure("sqlite_storage")
+    sqlstate = getattr(exc.orig, "sqlstate", None)  # PostgreSQL (psycopg)
+    if sqlstate in _PG_RETRYABLE:
+        return Failure("pg_contention", retryable=True)
+    if sqlstate is not None and (sqlstate in _PG_UNAVAILABLE or sqlstate[:2] in ("08", "53")):
+        return Failure("pg_unavailable")
     return None  # SQL errors/constraints/programming errors are not transient.
+
+
+# serialization_failure, deadlock_detected, lock_not_available (lock_timeout): giao dịch
+# đã bị hủy trọn vẹn, chạy lại là an toàn.
+_PG_RETRYABLE = {"40001", "40P01", "55P03"}
+# query_canceled (statement_timeout), admin/crash shutdown, cannot_connect_now;
+# cùng với lớp 08 (kết nối) và 53 (thiếu tài nguyên) ở trên.
+_PG_UNAVAILABLE = {"57014", "57P01", "57P02", "57P03"}
 
 
 class CircuitBreaker:

@@ -1,11 +1,13 @@
 from sqlalchemy import select, update
 
 from app.repositories.models import Concert, Order, TicketType
+from app.repositories.ticket_repo import TicketRepository
 
 
 class ConcertManagementRepository:
     def __init__(self, db):
         self.db = db
+        self.tickets = TicketRepository(db)
 
     def get_concert(self, concert_id):
         # Acquire the database write lock before inspecting orders/inventory.
@@ -24,6 +26,8 @@ class ConcertManagementRepository:
         ticket = TicketType(concert_id=concert_id, remaining=fields["total_quantity"], **fields)
         self.db.add(ticket)
         self.db.flush()
+        # Mỗi vé là một dòng trong bảng tickets, sinh sẵn cùng lúc với hạng vé.
+        self.tickets.generate(ticket.id, ticket.total_quantity)
         return ticket
 
     def get_ticket(self, concert_id, ticket_id):
@@ -43,6 +47,8 @@ class ConcertManagementRepository:
         return concert
 
     def update_ticket(self, ticket, fields):
+        """Trả None nếu tổng mới thấp hơn số vé đang giữ/đã bán."""
+        delta = fields["total_quantity"] - ticket.total_quantity
         result = self.db.execute(update(TicketType).where(
             TicketType.id == ticket.id,
             TicketType.total_quantity - TicketType.remaining <= fields["total_quantity"],
@@ -51,15 +57,25 @@ class ConcertManagementRepository:
             remaining=TicketType.remaining + fields["total_quantity"] - TicketType.total_quantity,
             total_quantity=fields["total_quantity"],
         ))
+        if result.rowcount != 1:
+            self.db.refresh(ticket)
+            return None
+        # Giữ bảng tickets khớp với bộ đếm: thêm vé trống mới hoặc bỏ bớt vé trống.
+        if delta > 0:
+            self.tickets.generate(ticket.id, delta)
+        elif delta < 0 and self.tickets.remove_available(ticket.id, -delta) != -delta:
+            return None  # service ném InvalidState → transaction của request rollback
         self.db.refresh(ticket)
-        return ticket if result.rowcount == 1 else None
+        return ticket
 
     def delete_ticket(self, ticket):
+        self.tickets.delete_by_type(ticket.id)
         self.db.delete(ticket)
         self.db.flush()
 
     def delete_concert(self, concert):
         for ticket in list(concert.ticket_types):
+            self.tickets.delete_by_type(ticket.id)
             self.db.delete(ticket)
         self.db.flush()
         self.db.delete(concert)

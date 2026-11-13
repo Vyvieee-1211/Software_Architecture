@@ -41,3 +41,23 @@ class InvalidState(BusinessError):
 
 class IdempotencyKeyReused(BusinessError):
     """Cùng Idempotency-Key nhưng nội dung đơn khác với lần gửi đầu tiên."""
+
+
+class SaleClosed(BusinessError):
+    """Concert đã diễn ra: không còn nhận đặt vé."""
+
+
+class HoldLimitExceeded(BusinessError):
+    """Vượt quá số vé một người được giữ tạm cùng lúc."""
+
+
+class HoldExpired(BusinessError):
+    """Đơn giữ chỗ đã quá hạn thanh toán."""
+
+
+class InvalidWebhookSignature(BusinessError):
+    """Webhook thanh toán sai chữ ký hoặc sai định dạng."""
+
+
+class PaymentGatewayError(BusinessError):
+    """Cổng thanh toán từ chối hoặc không phản hồi."""

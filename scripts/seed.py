@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 
 from app.repositories.database import SessionLocal, init_db
 from app.repositories.models import Concert, TicketType, User
+from app.repositories.ticket_repo import TicketRepository
 
 
 def seed() -> None:
@@ -14,7 +15,7 @@ def seed() -> None:
             print("Đã có dữ liệu, bỏ qua seed.")
             return
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         concerts = [
             Concert(
                 name="Sơn Tùng M-TP – Sky Tour",
@@ -34,14 +35,15 @@ def seed() -> None:
         db.add_all(concerts)
         db.flush()
 
+        tickets = TicketRepository(db)
         for c in concerts:
-            db.add_all(
-                [
-                    TicketType(concert_id=c.id, name="VIP", price=3_000_000, total_quantity=100, remaining=100),
-                    TicketType(concert_id=c.id, name="Standard", price=1_500_000, total_quantity=1000, remaining=1000),
-                    TicketType(concert_id=c.id, name="GA", price=800_000, total_quantity=5000, remaining=5000),
-                ]
-            )
+            for name, price, quantity in (("VIP", 3_000_000, 100), ("Standard", 1_500_000, 1000), ("GA", 800_000, 5000)):
+                ticket_type = TicketType(concert_id=c.id, name=name, price=price,
+                                         total_quantity=quantity, remaining=quantity)
+                db.add(ticket_type)
+                db.flush()
+                # Mỗi vé là một dòng trong bảng tickets, sinh sẵn theo số lượng của hạng vé.
+                tickets.generate(ticket_type.id, quantity)
 
         db.add(
             User(
@@ -51,7 +53,7 @@ def seed() -> None:
             )
         )
         db.commit()
-        print("Seed xong: 2 concert, 6 hạng vé, user demo@example.com / password123")
+        print("Seed xong: 2 concert, 6 hạng vé, 12.200 vé, user demo@example.com / password123")
     finally:
         db.close()
 
