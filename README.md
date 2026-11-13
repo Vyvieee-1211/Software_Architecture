@@ -150,15 +150,38 @@ Nhiệm vụ:
 * Đóng gói các thao tác truy vấn và cập nhật cho người dùng, concert, loại vé và đơn hàng.
 * Cung cấp giao diện truy cập dữ liệu cho tầng nghiệp vụ thông qua Repository.
 
-### 5.4. Luồng xử lý đặt vé
+### 5.4. Luồng đặt vé: giữ chỗ → thanh toán → xuất vé
 
-1. Client gửi yêu cầu `POST /orders` kèm thông tin loại vé, số lượng và JWT Bearer Token.
-2. API Layer xác thực người dùng và kiểm tra định dạng dữ liệu đầu vào.
-3. Business Layer kiểm tra loại vé, thời gian mở bán và các điều kiện đặt vé.
-4. Repository thực hiện các thao tác đọc/cập nhật dữ liệu cần thiết.
-5. API trả kết quả đặt vé hoặc lỗi phù hợp dưới dạng JSON.
+```text
+POST /orders            POST /orders/{id}/pay        webhook cổng thanh toán
+(giữ chỗ, tối đa 10 vé) ──► (tạo giao dịch, trả     ──► POST /payments/webhook
+      │                      payment_url cho khách)          │
+      ▼                                                      ▼
+ đơn `held`, kho trừ tạm,                      thành công ──► `paid`: xuất vé, sinh QR
+ vé gán cho đơn, giữ 12 phút                   thất bại  ──► `failed`: hoàn kho
+      │                                        về muộn/sai tiền ──► không xuất vé, hoàn tiền
+      ▼
+ quá 12 phút (HoldSweeper) ──► `expired`: hoàn kho      khách hủy ──► `cancelled`: hoàn kho
+```
 
-Chi tiết bảo đảm tính nguyên tử và hành vi khi có nhiều yêu cầu đồng thời cần được xác nhận bằng kiểm thử và số liệu thực tế; đây cũng là một nội dung đánh giá quan trọng cho Phase 2.
+1. **Giữ chỗ** (`POST /orders`, một transaction): khóa dòng user → kiểm tra `sale_open_time <= now < start_time` → kiểm tra giới hạn vé đang giữ của người dùng (mặc định 10) → trừ tạm `remaining` bằng `UPDATE … WHERE remaining >= quantity` → tạo đơn `held` với `expires_at = now + 12 phút`, chốt `unit_price`/`total_amount` → gán N vé trống trong bảng `tickets` cho đơn (`FOR UPDATE SKIP LOCKED` trên PostgreSQL).
+2. **Thanh toán** (`POST /orders/{id}/pay`): tạo giao dịch ở cổng thanh toán **ngoài** transaction DB, ghi dòng `payment/pending` vào `transactions`, trả `payment_url` để chuyển hướng khách.
+3. **Phản hồi của bên thứ ba** (`POST /payments/webhook`): kiểm tra chữ ký HMAC, ghi sự kiện vào `transactions` (ràng buộc duy nhất → webhook gửi lặp chỉ được xử lý một lần), rồi chuyển trạng thái đơn bằng `UPDATE … WHERE status='held' AND expires_at > now`. Chốt được thì vé chuyển `sold` và sinh mã QR có chữ ký; không chốt được (đơn đã hết hạn, bị hủy, sai số tiền) thì **không xuất vé** và gọi hoàn tiền.
+4. **Hết hạn**: luồng nền `HoldSweeper` quét đơn `held` quá hạn, mỗi đơn một transaction, chỉ hoàn kho cho đơn thực sự đổi được trạng thái.
+5. **Xuất vé**: `GET /orders/{id}/tickets` trả từng vé với `seat_no` và nội dung QR; `GET /orders/{id}/tickets/{ticket_id}/qr` trả ảnh SVG.
+
+Mọi lần chuyển trạng thái đơn (`held → paid | expired | cancelled | failed`) là một câu `UPDATE` có điều kiện trên trạng thái hiện tại; chỉ request làm đổi đúng một dòng mới được hoàn kho hoặc xuất vé. Nhờ vậy hủy trùng, hết hạn trùng, thanh toán và hết hạn đồng thời không thể cùng thắng. Hủy qua API chỉ áp dụng cho đơn đang giữ chỗ; đơn đã thanh toán là đơn hoàn thành.
+
+### 5.5. Cơ sở dữ liệu (PostgreSQL)
+
+|Bảng|Cột chính|Ghi chú|
+|-|-|-|
+|`ticket_types`|`total_quantity`, `remaining`|Bộ đếm tồn kho; ràng buộc `0 <= remaining <= total_quantity`.|
+|`orders`|`status`, `quantity`, `unit_price`, `total_amount`, `expires_at`, `paid_at`, `idempotency_key`|Đơn giữ chỗ; giá chốt lúc giữ.|
+|`tickets`|`ticket_type_id`, `seat_no`, `order_id`, `status`, `qr_code`, `version`|Mỗi vé một dòng, sinh sẵn khi tạo hạng vé; `version` là khóa lạc quan.|
+|`transactions`|`order_id`, `payment_id`, `provider`, `type`, `status`, `amount`, `raw_log`|Log dòng tiền, chỉ ghi thêm; duy nhất theo `(provider, payment_id, type, status)`.|
+
+Cổng thanh toán được trừu tượng hóa bằng giao diện `PaymentGateway` (`app/services/payment_gateway.py`). Bản giả lập `app/integrations/mock_payment.py` đóng vai bên thứ ba (trang thanh toán tại `/mock-gateway/checkout`, webhook ký HMAC-SHA256); nối cổng thật (VNPay, MoMo…) là viết thêm một adapter và đăng ký trong `build_payment_gateway`.
 
 \---
 
@@ -221,7 +244,7 @@ Chi tiết bảo đảm tính nguyên tử và hành vi khi có nhiều yêu c�
 
 * Python 3.12 trở lên.
 * Git nếu clone mã nguồn từ repository.
-* Docker và Docker Compose nếu muốn chạy bằng container.
+* Docker và Docker Compose (chạy PostgreSQL và/hoặc API trong container). Không có Docker vẫn chạy được với SQLite: đặt `DATABASE_URL=sqlite:///./concert.db`.
 
 ### 7.2. Chạy bằng Docker Compose
 
@@ -238,7 +261,7 @@ cd Software_Architecture
 docker compose up --build
 ```
 
-API mặc định được cung cấp tại `http://localhost:8000`.
+Lệnh này chạy PostgreSQL 17 (`db`, cổng 5432) và API (`api`). API mặc định được cung cấp tại `http://localhost:8000`. Chỉ cần DB để chạy API trực tiếp bằng Python: `docker compose up db`.
 
 **Bước 3: Khởi tạo dữ liệu mẫu**
 
@@ -311,9 +334,15 @@ Khi ứng dụng đang chạy, truy cập:
 |`GET`|`/concerts`|Không yêu cầu|Lấy danh sách concert; thêm `?on_sale=true` để chỉ lấy concert đã mở bán.|
 |`GET`|`/concerts/{id}`|Không yêu cầu|Xem chi tiết concert; trả 404 nếu không tồn tại.|
 |`GET`|`/concerts/{id}/ticket-types`|Không yêu cầu|Lấy các loại vé của một concert.|
-|`POST`|`/orders`|Bearer Token|Tạo đơn đặt vé.|
+|`POST`|`/orders`|Bearer Token|Giữ chỗ: tạo đơn `held`, trừ tạm kho, giữ vé 12 phút. 400 `SaleNotOpen`/`SaleClosed`, 409 `SoldOut`/`HoldLimitExceeded`.|
 |`GET`|`/orders/me`|Bearer Token|Xem đơn hàng của người dùng hiện tại.|
-|`DELETE`|`/orders/{id}`|Bearer Token|Hủy đơn hàng theo điều kiện nghiệp vụ.|
+|`GET`|`/orders/{id}`|Bearer Token|Xem một đơn.|
+|`DELETE`|`/orders/{id}`|Bearer Token|Hủy đơn đang giữ chỗ và trả vé về kho; đơn đã thanh toán trả 409.|
+|`POST`|`/orders/{id}/pay`|Bearer Token|Tạo giao dịch ở cổng thanh toán, trả `payment_url`. 409 `HoldExpired` nếu quá hạn.|
+|`GET`|`/orders/{id}/tickets`|Bearer Token|Các vé của đơn (`seat_no`, `qr_code` khi đã thanh toán).|
+|`GET`|`/orders/{id}/tickets/{ticket_id}/qr`|Bearer Token|Ảnh QR (SVG) của một vé đã xuất.|
+|`POST`|`/payments/webhook`|Chữ ký HMAC|Cổng thanh toán báo kết quả; 401 `InvalidWebhookSignature`.|
+|`GET`/`POST`|`/mock-gateway/checkout`, `/mock-gateway/pay`|Không yêu cầu|Trang và API của cổng thanh toán giả lập (chỉ khi `PAYMENT_PROVIDER=mock`).|
 |`GET`|`/health`|Không yêu cầu|Kiểm tra trạng thái hoạt động cơ bản của API.|
 
 Các endpoint `/orders` được bảo vệ bằng dependency xác thực dùng chung. Chi tiết request schema, response schema và mã trạng thái HTTP có thể xem trong Swagger UI tại `/docs`.
