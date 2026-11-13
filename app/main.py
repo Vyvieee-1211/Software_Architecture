@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.routers import auth, concerts, orders
 from app.repositories.database import init_db
 from app.services import errors
+from app.services.infrastructure_errors import DatabaseUnavailable
 
 
 @asynccontextmanager
@@ -55,6 +56,16 @@ def health():
     return {"status": "ok"}
 
 
+@app.exception_handler(DatabaseUnavailable)
+def database_error_handler(request: Request, exc: DatabaseUnavailable):
+    return JSONResponse(
+        status_code=503,
+        content={"error": "DatabaseUnavailable", "detail": str(exc)},
+        headers={"Retry-After": str(exc.retry_after)},
+    )
+
+
+# Mount frontend sau cùng để không che các route API.
 app.mount(
     "/",
     StaticFiles(directory=Path(__file__).resolve().parent.parent / "frontend", html=True),
