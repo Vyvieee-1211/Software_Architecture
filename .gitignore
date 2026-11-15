@@ -7,3 +7,4 @@ __pycache__/
 .venv-local/
 data/
 *.zip
+loadtest/inventory_check_*.csv
