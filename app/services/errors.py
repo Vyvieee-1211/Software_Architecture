@@ -61,3 +61,7 @@ class InvalidWebhookSignature(BusinessError):
 
 class PaymentGatewayError(BusinessError):
     """Cổng thanh toán từ chối hoặc không phản hồi."""
+
+
+class RefundWindowClosed(BusinessError):
+    """Đã quá hạn hoàn tiền: quá sát (hoặc sau) giờ diễn."""

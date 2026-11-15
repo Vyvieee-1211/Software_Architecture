@@ -6,6 +6,7 @@ from sqlalchemy import func, select, update
 
 from app.api import deps
 from app.repositories import database
+from app.services.errors import PaymentGatewayError
 from app.repositories.models import Concert, Order, Ticket, TicketType, Transaction
 from tests.conftest import add_ticket_type
 from tests.test_api import auth_header, client  # noqa: F401  (fixture dùng chung)
@@ -87,10 +88,6 @@ def test_successful_payment_issues_qr_tickets(client):
     assert qr.status_code == 200 and qr.headers["content-type"].startswith("image/svg+xml")
 
     # Kho không đổi khi chốt: vé đã bị trừ từ lúc giữ chỗ.
-    assert remaining(client) == 1
-    # Đơn đã thanh toán là đơn hoàn thành: không hủy qua API giữ chỗ.
-    r = client.delete(f"/orders/{order['id']}", headers=h)
-    assert r.status_code == 409 and r.json()["detail"] == "order already paid"
     assert remaining(client) == 1
 
 
@@ -254,3 +251,121 @@ def test_inventory_invariant_after_mixed_flow(client):
         assert ticket_type.remaining + active == ticket_type.total_quantity
         assert ticket_rows("available") == ticket_type.remaining
         assert ticket_rows("sold") == 1 and ticket_rows("held") == 0
+
+
+# --- Hủy đơn đã thanh toán (hoàn tiền) ---------------------------------------
+
+def events(order_id):
+    with database.SessionLocal() as db:
+        return db.execute(select(Transaction.type, Transaction.status)
+                          .where(Transaction.order_id == order_id).order_by(Transaction.id)).all()
+
+
+def paid_order(client, headers, quantity=2):
+    order = hold(client, headers, quantity=quantity)
+    assert pay(client, start_payment(client, headers, order["id"])).json()["result"] == "paid"
+    return order
+
+
+def test_refund_paid_order_returns_tickets_and_revokes_qr(client):
+    h = auth_header(client)
+    order = paid_order(client, h, quantity=2)
+    old_codes = {t["qr_code"] for t in client.get(f"/orders/{order['id']}/tickets", headers=h).json()}
+
+    r = client.delete(f"/orders/{order['id']}", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "refunded"
+    assert client.get(f"/orders/{order['id']}", headers=h).json()["status"] == "refunded"
+
+    assert remaining(client) == 3 and ticket_rows("available") == 3 and ticket_rows("sold") == 0
+    assert client.get(f"/orders/{order['id']}/tickets", headers=h).json() == []  # vé không còn thuộc đơn
+    assert events(order["id"]) == [("payment", "pending"), ("payment", "succeeded"),
+                                   ("refund", "pending"), ("refund", "succeeded")]
+    with database.SessionLocal() as db:
+        amounts = db.scalars(select(Transaction.amount).where(Transaction.order_id == order["id"],
+                                                               Transaction.type == "refund")).all()
+    assert all(float(a) == 200 for a in amounts)
+
+    # Vé bán lại cho người khác nhận mã QR mới; mã cũ không dùng lại.
+    other = auth_header(client, "other@example.com")
+    resold = paid_order(client, other, quantity=2)
+    new_codes = {t["qr_code"] for t in client.get(f"/orders/{resold['id']}/tickets", headers=other).json()}
+    assert new_codes.isdisjoint(old_codes)
+
+
+def test_refund_twice_is_rejected_and_refunds_once(client):
+    h = auth_header(client)
+    order = paid_order(client, h, quantity=1)
+    assert client.delete(f"/orders/{order['id']}", headers=h).status_code == 200
+    r = client.delete(f"/orders/{order['id']}", headers=h)
+    assert r.status_code == 409 and r.json() == {"error": "InvalidState", "detail": "order already refunded"}
+    assert remaining(client) == 3
+    assert events(order["id"]).count(("refund", "pending")) == 1
+
+
+def test_refund_window_closes_before_concert(client):
+    h = auth_header(client)
+    order = paid_order(client, h, quantity=1)
+    with database.SessionLocal() as db:
+        db.get(Concert, 1).start_time = now() + timedelta(hours=23)  # mặc định phải cách 24h
+        db.commit()
+    r = client.delete(f"/orders/{order['id']}", headers=h)
+    assert r.status_code == 409 and r.json()["error"] == "RefundWindowClosed"
+    assert client.get(f"/orders/{order['id']}", headers=h).json()["status"] == "paid"
+    assert remaining(client) == 2 and ticket_rows("sold") == 1
+    assert events(order["id"]) == [("payment", "pending"), ("payment", "succeeded")]
+
+
+def test_refund_other_users_order_forbidden(client):
+    owner = auth_header(client, "owner@example.com")
+    order = paid_order(client, owner, quantity=1)
+    r = client.delete(f"/orders/{order['id']}", headers=auth_header(client, "other@example.com"))
+    assert r.status_code == 403
+    assert client.get(f"/orders/{order['id']}", headers=owner).json()["status"] == "paid"
+
+
+def test_refund_gateway_failure_is_logged_for_reconciliation(client, monkeypatch):
+    """Vé đã về kho, cổng hoàn tiền lỗi: đơn vẫn `refunded`, log ghi `refund/failed` để đối soát."""
+    h = auth_header(client)
+    order = paid_order(client, h, quantity=1)
+
+    def broken_refund(payment_id, amount, reason):
+        raise PaymentGatewayError("gateway down")
+
+    monkeypatch.setattr(deps.payment_gateway, "refund", broken_refund)
+    r = client.delete(f"/orders/{order['id']}", headers=h)
+    assert r.status_code == 200 and r.json()["status"] == "refunded"
+    assert remaining(client) == 3
+    assert events(order["id"])[-2:] == [("refund", "pending"), ("refund", "failed")]
+
+
+def test_refund_does_not_count_toward_hold_limit(client):
+    with database.SessionLocal() as db:
+        add_ticket_type(db, id=2, concert_id=1, name="Big", price=10, total_quantity=50)
+        db.commit()
+    h = auth_header(client)
+    order = paid_order_of_type(client, h, 2, 10)
+    client.delete(f"/orders/{order['id']}", headers=h)
+    hold(client, h, quantity=10, ticket_type_id=2)
+
+
+def paid_order_of_type(client, headers, ticket_type_id, quantity):
+    order = hold(client, headers, quantity=quantity, ticket_type_id=ticket_type_id)
+    assert pay(client, start_payment(client, headers, order["id"])).json()["result"] == "paid"
+    return order
+
+
+def test_inventory_invariant_includes_refunded_orders(client):
+    users = [auth_header(client, f"u{i}@example.com") for i in range(3)]
+    refunded = paid_order(client, users[0], quantity=1)
+    client.delete(f"/orders/{refunded['id']}", headers=users[0])
+    paid_order(client, users[1], quantity=1)
+    hold(client, users[2], quantity=1)
+
+    with database.SessionLocal() as db:
+        ticket_type = db.get(TicketType, 1)
+        active = db.scalar(select(func.coalesce(func.sum(Order.quantity), 0))
+                           .where(Order.status.in_(["held", "paid"])))
+        assert ticket_type.remaining + active == ticket_type.total_quantity
+        assert ticket_rows("available") == ticket_type.remaining == 1
+        assert ticket_rows("sold") == 1 and ticket_rows("held") == 1

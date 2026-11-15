@@ -162,6 +162,8 @@ POST /orders            POST /orders/{id}/pay        webhook cổng thanh toán
       │                                        về muộn/sai tiền ──► không xuất vé, hoàn tiền
       ▼
  quá 12 phút (HoldSweeper) ──► `expired`: hoàn kho      khách hủy ──► `cancelled`: hoàn kho
+
+ `paid` ── khách hủy (DELETE /orders/{id}, trước giờ diễn ≥ 24h) ──► `refunded`: thu hồi vé, hoàn kho, hoàn tiền
 ```
 
 1. **Giữ chỗ** (`POST /orders`, một transaction): khóa dòng user → kiểm tra `sale_open_time <= now < start_time` → kiểm tra giới hạn vé đang giữ của người dùng (mặc định 10) → trừ tạm `remaining` bằng `UPDATE … WHERE remaining >= quantity` → tạo đơn `held` với `expires_at = now + 12 phút`, chốt `unit_price`/`total_amount` → gán N vé trống trong bảng `tickets` cho đơn (`FOR UPDATE SKIP LOCKED` trên PostgreSQL).
@@ -169,8 +171,9 @@ POST /orders            POST /orders/{id}/pay        webhook cổng thanh toán
 3. **Phản hồi của bên thứ ba** (`POST /payments/webhook`): kiểm tra chữ ký HMAC, ghi sự kiện vào `transactions` (ràng buộc duy nhất → webhook gửi lặp chỉ được xử lý một lần), rồi chuyển trạng thái đơn bằng `UPDATE … WHERE status='held' AND expires_at > now`. Chốt được thì vé chuyển `sold` và sinh mã QR có chữ ký; không chốt được (đơn đã hết hạn, bị hủy, sai số tiền) thì **không xuất vé** và gọi hoàn tiền.
 4. **Hết hạn**: luồng nền `HoldSweeper` quét đơn `held` quá hạn, mỗi đơn một transaction, chỉ hoàn kho cho đơn thực sự đổi được trạng thái.
 5. **Xuất vé**: `GET /orders/{id}/tickets` trả từng vé với `seat_no` và nội dung QR; `GET /orders/{id}/tickets/{ticket_id}/qr` trả ảnh SVG.
+6. **Hủy đơn đã thanh toán** (`DELETE /orders/{id}` trên đơn `paid`): chỉ nhận khi còn cách giờ diễn ít nhất `REFUND_CUTOFF_HOURS` (mặc định 24h), quá mốc trả `409 RefundWindowClosed`. Một transaction chuyển `paid → refunded` bằng `UPDATE … WHERE status='paid'`, trả vé về kho và xóa mã QR (vé cũ không còn quét được), ghi `refund/pending`; sau đó gọi cổng hoàn toàn bộ tiền **ngoài** transaction và ghi `refund/succeeded|failed`. Cổng hoàn lỗi thì đơn vẫn `refunded`, dòng `refund/pending` không có kết quả là việc của đối soát.
 
-Mọi lần chuyển trạng thái đơn (`held → paid | expired | cancelled | failed`) là một câu `UPDATE` có điều kiện trên trạng thái hiện tại; chỉ request làm đổi đúng một dòng mới được hoàn kho hoặc xuất vé. Nhờ vậy hủy trùng, hết hạn trùng, thanh toán và hết hạn đồng thời không thể cùng thắng. Hủy qua API chỉ áp dụng cho đơn đang giữ chỗ; đơn đã thanh toán là đơn hoàn thành.
+Mọi lần chuyển trạng thái đơn (`held → paid | expired | cancelled | failed`, `paid → refunded`) là một câu `UPDATE` có điều kiện trên trạng thái hiện tại; chỉ request làm đổi đúng một dòng mới được hoàn kho, xuất vé hoặc gọi hoàn tiền. Nhờ vậy hủy trùng, hết hạn trùng, hoàn tiền trùng, thanh toán và hết hạn đồng thời không thể cùng thắng.
 
 ### 5.5. Cơ sở dữ liệu (PostgreSQL)
 
@@ -271,6 +274,14 @@ Mở terminal khác tại thư mục dự án và chạy:
 docker compose exec api python -m scripts.seed
 ```
 
+Lược đồ được tạo bằng `create_all` khi API khởi động, nên khi `app/repositories/models.py` thay đổi thì DB cũ phải được tạo lại (dữ liệu chỉ là dữ liệu mẫu):
+
+```bash
+docker compose down -v        # xóa volume PostgreSQL
+docker compose up -d db
+python -m scripts.seed
+```
+
 **Bước 4: Dừng ứng dụng**
 
 Nhấn `Ctrl + C` tại terminal đang chạy hoặc thực hiện:
@@ -337,7 +348,7 @@ Khi ứng dụng đang chạy, truy cập:
 |`POST`|`/orders`|Bearer Token|Giữ chỗ: tạo đơn `held`, trừ tạm kho, giữ vé 12 phút. 400 `SaleNotOpen`/`SaleClosed`, 409 `SoldOut`/`HoldLimitExceeded`.|
 |`GET`|`/orders/me`|Bearer Token|Xem đơn hàng của người dùng hiện tại.|
 |`GET`|`/orders/{id}`|Bearer Token|Xem một đơn.|
-|`DELETE`|`/orders/{id}`|Bearer Token|Hủy đơn đang giữ chỗ và trả vé về kho; đơn đã thanh toán trả 409.|
+|`DELETE`|`/orders/{id}`|Bearer Token|Hủy đơn: đơn `held` → `cancelled` (trả vé về kho); đơn `paid` → `refunded` (thu hồi vé, hoàn toàn bộ tiền; 409 `RefundWindowClosed` nếu cách giờ diễn dưới 24h).|
 |`POST`|`/orders/{id}/pay`|Bearer Token|Tạo giao dịch ở cổng thanh toán, trả `payment_url`. 409 `HoldExpired` nếu quá hạn.|
 |`GET`|`/orders/{id}/tickets`|Bearer Token|Các vé của đơn (`seat_no`, `qr_code` khi đã thanh toán).|
 |`GET`|`/orders/{id}/tickets/{ticket_id}/qr`|Bearer Token|Ảnh QR (SVG) của một vé đã xuất.|

@@ -26,7 +26,7 @@ docker compose up --build                                        # db + api in c
 docker compose exec api python -m scripts.seed
 ```
 
-- `DATABASE_URL` defaults to PostgreSQL; set `DATABASE_URL=sqlite:///./concert.db` to run without Docker. `init_db` only does `create_all`; a database created from an older schema must be dropped and recreated.
+- `DATABASE_URL` defaults to PostgreSQL; set `DATABASE_URL=sqlite:///./concert.db` to run without Docker. `init_db` only does `create_all`; after any change to `models.py` reset the database with `docker compose down -v; docker compose up -d db` and re-seed.
 - Scripts must be run as modules (`python -m scripts.seed`) from the repo root so that `app` is importable. `seed` is a no-op if any concert already exists.
 - There is no linter, formatter, or type-checker configured.
 - Locust is not in `requirements.txt`; install it separately. `loadtest/locustfile.py` drives hold → pay via the mock gateway, so the API must run with `PAYMENT_PROVIDER=mock`.
@@ -55,9 +55,11 @@ Two patterns coexist:
 
 ### Order state machine and inventory
 
-`orders.status`: `held → paid | expired | cancelled | failed`. Every transition is a single conditional `UPDATE ... WHERE status = 'held' [AND expires_at > now]` in `OrderRepository`; callers proceed (issue tickets, return stock) only when `rowcount == 1`. Keep it that way — read-then-check-then-write is exactly the bug this replaced.
+`orders.status`: `held → paid | expired | cancelled | failed`, and `paid → refunded` (customer cancels a paid order, full refund, only until `REFUND_CUTOFF_HOURS` before the concert). Every transition is a single conditional `UPDATE ... WHERE status = '<from>' [AND expires_at > now]` in `OrderRepository`; callers proceed (issue tickets, return stock) only when `rowcount == 1`. Keep it that way — read-then-check-then-write is exactly the bug this replaced. `DELETE /orders/{id}` dispatches on the order's status: `held` goes to `OrderService.cancel_order`, `paid` to `PaymentService.refund_order`.
 
-Inventory invariant: `ticket_types.remaining + sum(quantity of held/paid orders) == total_quantity`, and the `tickets` rows mirror it (`available` count == `remaining`). Reserving is `UPDATE ... WHERE remaining >= quantity`; `release_hold()` in `order_service.py` is the only place stock and ticket rows are returned, and it must only run right after a successful transition.
+Inserts that rely on `ON CONFLICT DO NOTHING` (`create_idempotent`, `TransactionRepository.record`) must detect "inserted vs skipped" via `.returning(id)`, not `rowcount`: psycopg reports -1 for an INSERT with RETURNING, which silently made every idempotent hold on PostgreSQL skip stock reservation.
+
+Inventory invariant: `ticket_types.remaining + sum(quantity of held/paid orders) == total_quantity`, and the `tickets` rows mirror it (`available` count == `remaining`). Reserving is `UPDATE ... WHERE remaining >= quantity`; `release_hold()` / `release_sold()` in `order_service.py` are the only places stock and ticket rows are returned (the latter also clears `qr_code`), and they must only run right after a successful transition.
 
 Per-user hold limit (`MAX_HELD_TICKETS_PER_USER`) is enforced under a `SELECT ... FOR UPDATE` on the user row, which also serialises Idempotency-Key retries from the same user.
 

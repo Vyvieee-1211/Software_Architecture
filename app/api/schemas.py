@@ -112,7 +112,7 @@ class OrderResponse(BaseModel):
     user_id: int
     ticket_type_id: int
     quantity: int
-    status: str = Field(description="held | paid | expired | cancelled | failed")
+    status: str = Field(description="held | paid | expired | cancelled | failed | refunded")
     unit_price: Decimal
     total_amount: Decimal
     expires_at: datetime = Field(description="Hạn giữ chỗ (UTC). Quá hạn mà chưa thanh toán thì vé được trả về kho.")

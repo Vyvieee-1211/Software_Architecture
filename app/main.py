@@ -59,6 +59,7 @@ ERROR_STATUS = {
     errors.HoldExpired: 409,
     errors.InvalidWebhookSignature: 401,
     errors.PaymentGatewayError: 502,
+    errors.RefundWindowClosed: 409,
 }
 
 

@@ -175,3 +175,42 @@ def test_duplicate_webhooks_in_parallel_apply_once(sessions):
     assert results == ["duplicate"] * 7 + ["paid"]
     with sessions() as db:
         assert db.scalar(select(func.count()).select_from(Ticket).where(Ticket.status == "sold")) == 2
+
+
+def test_duplicate_refund_in_parallel_refunds_once(sessions):
+    """10 request hủy đơn đã thanh toán cùng lúc: một request hoàn kho và gọi cổng, còn lại InvalidState."""
+    gateway = MockPaymentGateway("secret", "http://test")
+    refund_calls = []
+    original_refund = gateway.refund
+    gateway.refund = lambda *args: (refund_calls.append(args), original_refund(*args))[1]
+    orders = make_order_service(sessions)
+    payments = PaymentService(lambda: SqlAlchemyUnitOfWork(sessions), gateway,
+                              TicketCodes("qr").issue, execute=policy().run, refund_cutoff_hours=1)
+    order = orders.create_order(user_id=1, ticket_type_id=1, quantity=3)
+    payment = payments.start_payment(1, order.id)
+    headers, body = gateway.build_webhook(payment.payment_id, Decimal("300"), True)
+    assert payments.handle_webhook(headers, body).result == "paid"
+
+    outcomes = run_parallel(10, lambda i: payments.refund_order(user_id=1, order_id=order.id))
+
+    assert sum(1 for kind, _ in outcomes if kind == "ok") == 1, [repr(e) for kind, e in outcomes if kind == "err"]
+    assert all(isinstance(e, InvalidState) for kind, e in outcomes if kind == "err"), outcomes
+    assert len(refund_calls) == 1
+    remaining, active, total, by_status = inventory(sessions)
+    assert remaining == 20 and active == 0 and by_status == {"available": 20}
+    with sessions() as db:
+        assert db.get(Order, order.id).status == "refunded"
+        assert db.scalar(select(func.count()).select_from(Ticket).where(Ticket.qr_code.is_not(None))) == 0
+
+
+def test_idempotent_hold_reserves_stock_and_replays(sessions):
+    """Đặt vé kèm Idempotency-Key trên PostgreSQL thật: lần đầu trừ kho và gán vé, gửi lại trả đúng đơn cũ."""
+    svc = make_order_service(sessions)
+    first, created = svc.place_order(1, 1, 2, idempotency_key="key-123456789")
+    assert created and first.status == "held"
+    remaining, active, total, by_status = inventory(sessions)
+    assert remaining == 18 and active == 2 and by_status == {"available": 18, "held": 2}
+
+    outcomes = run_parallel(10, lambda i: svc.place_order(1, 1, 2, idempotency_key="key-123456789"))
+    assert all(kind == "ok" and o.id == first.id and not created for kind, (o, created) in outcomes), outcomes
+    assert inventory(sessions)[:2] == (18, 2)

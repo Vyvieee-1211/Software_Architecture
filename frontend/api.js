@@ -57,6 +57,11 @@ const messages = {
   NotFound: 'Không tìm thấy thông tin bạn yêu cầu.',
   InvalidState: 'Đơn vé này đã được huỷ hoặc không thể thay đổi trạng thái.',
   IdempotencyKeyReused: 'Yêu cầu đặt vé đã thay đổi so với lần gửi trước. Vui lòng kiểm tra lại đơn vé.',
+  HoldExpired: 'Đơn giữ chỗ đã quá hạn thanh toán. Vui lòng đặt lại.',
+  HoldLimitExceeded: 'Bạn đang giữ quá nhiều vé chưa thanh toán. Hãy thanh toán hoặc huỷ bớt đơn.',
+  SaleClosed: 'Concert đã diễn ra, không còn nhận đặt vé.',
+  RefundWindowClosed: 'Đã quá hạn hoàn tiền: chỉ huỷ được đơn đã thanh toán trước giờ diễn ít nhất 24 giờ.',
+  PaymentGatewayError: 'Cổng thanh toán không phản hồi. Vui lòng thử lại sau.',
 };
 
 // Một khoá cho MỘT lần đặt vé; gửi lại đúng khoá này khi retry để server không tạo đơn trùng.

@@ -7,16 +7,21 @@ Nguyên tắc:
   trên sự kiện làm webhook gửi lặp trở thành thao tác không có tác dụng.
 - Tiền về mà không chốt được đơn (đơn đã hết hạn/bị hủy/đã được trả bằng giao dịch
   khác, hoặc sai số tiền) thì KHÔNG xuất vé; ghi yêu cầu hoàn tiền rồi gọi cổng hoàn.
+- Khách hủy đơn đã thanh toán: đơn chuyển `paid → refunded` và vé về kho NGAY trong
+  một transaction (vé không còn quét được), rồi mới gọi cổng hoàn tiền. Gọi hoàn thất
+  bại thì dòng `refund/pending` không có kết quả là việc để đối soát xử lý lại.
 """
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from app.services.errors import Forbidden, HoldExpired, InvalidState, NotFound, PaymentGatewayError
+from app.services.errors import (
+    Forbidden, HoldExpired, InvalidState, NotFound, PaymentGatewayError, RefundWindowClosed,
+)
 from app.services.order_data import OrderData
-from app.services.order_service import release_hold
+from app.services.order_service import release_hold, release_sold
 from app.services.payment_gateway import PaymentEvent, PaymentGateway, RefundResult
 from app.services.unit_of_work import UnitOfWork
 
@@ -43,12 +48,15 @@ class WebhookOutcome:
 
 class PaymentService:
     def __init__(self, uow_factory: Callable[[], UnitOfWork], gateway: PaymentGateway,
-                 make_ticket_code: Callable[[int], str], clock=_utcnow, execute=None):
+                 make_ticket_code: Callable[[int], str], clock=_utcnow, execute=None, *,
+                 refund_cutoff_hours: float = 24):
         self.uow_factory = uow_factory
         self.gateway = gateway
         self.make_ticket_code = make_ticket_code
         self.clock = clock
         self.execute = execute or (lambda operation: operation())
+        # Chỉ hoàn tiền khi còn cách giờ diễn ít nhất chừng này.
+        self.refund_cutoff = timedelta(hours=refund_cutoff_hours)
 
     # --- Bắt đầu thanh toán ------------------------------------------------
 
@@ -153,11 +161,12 @@ class PaymentService:
             uow.commit()
         return outcome
 
-    def _refund(self, order_id: int, payment_id: str, amount: Decimal) -> None:
+    def _refund(self, order_id: int, payment_id: str, amount: Decimal,
+                reason: str = "order could not be confirmed") -> None:
         """Gọi cổng hoàn tiền rồi ghi kết quả. Dòng `refund/pending` không có kết quả
         tương ứng (vd. tiến trình chết giữa chừng) là việc để đối soát xử lý lại."""
         try:
-            refund = self.gateway.refund(payment_id, amount, "order could not be confirmed")
+            refund = self.gateway.refund(payment_id, amount, reason)
         except PaymentGatewayError as exc:
             refund = RefundResult(False, {"error": str(exc)})
         raw_log = json.dumps({"event": "refund_result", "gateway": refund.raw},
@@ -165,3 +174,51 @@ class PaymentService:
         self.execute(lambda: self._record(order_id, payment_id, "refund",
                                           "succeeded" if refund.succeeded else "failed",
                                           amount, raw_log))
+
+    # --- Khách hủy đơn đã thanh toán ----------------------------------------
+
+    def refund_order(self, user_id: int, order_id: int) -> OrderData:
+        """Hủy đơn `paid` và hoàn toàn bộ tiền. Chỉ nhận trước giờ diễn `refund_cutoff`.
+
+        Thứ tự: (1) một transaction chuyển `paid → refunded`, thu hồi vé, ghi
+        `refund/pending`; (2) gọi cổng hoàn tiền ngoài transaction; (3) ghi kết quả.
+        Hai request hủy cùng lúc: chỉ request đổi được dòng đơn mới hoàn kho và gọi cổng.
+        """
+        order, payment_id = self.execute(lambda: self._begin_refund(user_id, order_id))
+        self._refund(order.id, payment_id, order.total_amount, "cancelled by customer")
+        return order
+
+    def _begin_refund(self, user_id, order_id):
+        with self.uow_factory() as uow:
+            order = uow.orders.get_by_id(order_id)
+            if order is None:
+                raise NotFound(f"order {order_id}")
+            if order.user_id != user_id:
+                raise Forbidden("not your order")
+            if order.status != "paid":
+                raise InvalidState(f"order already {order.status}")
+
+            concert = uow.concerts.get_by_id(uow.ticket_types.get_by_id(order.ticket_type_id).concert_id)
+            if self.clock() + self.refund_cutoff > concert.start_time:
+                raise RefundWindowClosed(
+                    f"refunds close {self.refund_cutoff.total_seconds() / 3600:g} hours before "
+                    f"the concert starts at {concert.start_time.isoformat()}"
+                )
+
+            payment = uow.transactions.succeeded_payment(order_id)
+            if payment is None:  # đơn paid luôn có giao dịch thu tiền; thiếu là dữ liệu hỏng
+                raise InvalidState("order has no settled payment to refund")
+            payment_id = payment.payment_id
+
+            # Trạng thái đã đọc có thể cũ; DB quyết định request nào được hoàn kho.
+            if not uow.orders.mark_refunded(order_id, user_id):
+                raise InvalidState("order is no longer paid")
+            release_sold(uow, order)
+            uow.transactions.record(
+                order_id=order_id, payment_id=payment_id, provider=self.gateway.name,
+                type="refund", status="pending", amount=order.total_amount,
+                raw_log=json.dumps({"event": "refund_requested", "reason": "cancelled by customer"}),
+            )
+            result = OrderData.from_order(order)
+            uow.commit()
+        return result, payment_id

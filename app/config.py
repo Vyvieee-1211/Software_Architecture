@@ -36,6 +36,8 @@ MAX_TICKETS_PER_ORDER = _number("MAX_TICKETS_PER_ORDER", 10, int, 1)
 MAX_HELD_TICKETS_PER_USER = _number("MAX_HELD_TICKETS_PER_USER", 10, int, 1)
 # Chu kỳ quét đơn giữ chỗ quá hạn; 0 = tắt (vd. khi chạy test hoặc có worker riêng).
 HOLD_SWEEP_INTERVAL_SECONDS = _number("HOLD_SWEEP_INTERVAL_SECONDS", 5, float, 0)
+# Đơn đã thanh toán chỉ được hủy (hoàn toàn bộ tiền) trước giờ diễn ít nhất chừng này giờ.
+REFUND_CUTOFF_HOURS = _number("REFUND_CUTOFF_HOURS", 24, float, 0)
 
 PAYMENT_PROVIDER = os.getenv("PAYMENT_PROVIDER", "mock")
 # Khóa bí mật dùng chung với cổng thanh toán để ký/kiểm tra webhook (HMAC-SHA256).

@@ -55,7 +55,7 @@ class FakeTicketRepo:
         self.held[order_id] = quantity
         return [SimpleNamespace(id=i) for i in range(quantity)]
 
-    def release(self, order_id):
+    def release(self, order_id, status="held"):
         return self.held.pop(order_id, 0)
 
     def list_by_order(self, order_id):
