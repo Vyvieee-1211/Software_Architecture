@@ -71,13 +71,24 @@ def get_order(
     return svc.get_order(user.id, order_id)
 
 
-@router.delete("/{order_id}", response_model=OrderResponse, summary="Hủy đơn đang giữ chỗ và trả vé về kho")
+@router.delete(
+    "/{order_id}",
+    response_model=OrderResponse,
+    summary="Hủy đơn: đơn đang giữ chỗ trả vé về kho; đơn đã thanh toán hoàn tiền",
+    responses={409: {"description": "Đơn đã hủy/hết hạn (InvalidState), hoặc đơn đã thanh toán "
+                                    "nhưng quá sát giờ diễn để hoàn tiền (RefundWindowClosed)."}},
+)
 def cancel_order(
     order_id: int,
     user: User = Depends(get_current_user),
-    svc: OrderService = Depends(get_order_service),
+    orders: OrderService = Depends(get_order_service),
+    payments: PaymentService = Depends(get_payment_service),
 ):
-    return svc.cancel_order(user.id, order_id)
+    # Trạng thái đọc ở đây chỉ để chọn nhánh; mỗi service tự chuyển trạng thái bằng
+    # UPDATE có điều kiện nên đọc cũ chỉ dẫn tới InvalidState, không bao giờ hoàn kho hai lần.
+    if orders.get_order(user.id, order_id).status == "paid":
+        return payments.refund_order(user.id, order_id)
+    return orders.cancel_order(user.id, order_id)
 
 
 @router.post(

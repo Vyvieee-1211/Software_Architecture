@@ -27,10 +27,15 @@ class TransactionRepository:
                       type=type, status=status, amount=amount, raw_log=raw_log)
         make_insert = _UPSERT_INSERTS.get(self.db.get_bind().dialect.name)
         if make_insert is not None:
-            result = self.db.execute(
-                make_insert(Transaction).values(**values).on_conflict_do_nothing(index_elements=_EVENT_KEY)
+            # Hỏi RETURNING thay vì rowcount: với psycopg, INSERT có RETURNING báo rowcount
+            # -1, nên dòng bị bỏ qua và dòng ghi được không phân biệt được bằng rowcount.
+            inserted_id = self.db.scalar(
+                make_insert(Transaction)
+                .values(**values)
+                .on_conflict_do_nothing(index_elements=_EVENT_KEY)
+                .returning(Transaction.id)
             )
-            return result.rowcount == 1
+            return inserted_id is not None
         try:
             with self.db.begin_nested():
                 self.db.execute(insert(Transaction).values(**values))
@@ -47,10 +52,17 @@ class TransactionRepository:
         )
 
     def latest_pending_payment(self, order_id: int) -> Transaction | None:
+        return self._latest_payment(order_id, "pending")
+
+    def succeeded_payment(self, order_id: int) -> Transaction | None:
+        """Giao dịch đã thu tiền của đơn (đơn `paid` có đúng một dòng như vậy)."""
+        return self._latest_payment(order_id, "succeeded")
+
+    def _latest_payment(self, order_id: int, status: str) -> Transaction | None:
         return self.db.scalar(
             select(Transaction)
             .where(Transaction.order_id == order_id, Transaction.type == "payment",
-                   Transaction.status == "pending")
+                   Transaction.status == status)
             .order_by(Transaction.id.desc())
             .limit(1)
         )

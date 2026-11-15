@@ -32,12 +32,14 @@ class OrderRepository:
         values = dict(status="held", idempotency_key=idempotency_key, **fields)
         make_insert = _UPSERT_INSERTS.get(self.db.get_bind().dialect.name)
         if make_insert is not None:
-            result = self.db.execute(
+            # Hỏi RETURNING thay vì rowcount (psycopg báo -1 cho INSERT có RETURNING).
+            inserted_id = self.db.scalar(
                 make_insert(Order)
                 .values(**values)
                 .on_conflict_do_nothing(index_elements=["user_id", "idempotency_key"])
+                .returning(Order.id)
             )
-            if result.rowcount != 1:
+            if inserted_id is None:
                 return None
         else:  # DB khác: dựa vào unique index + savepoint.
             try:
@@ -87,10 +89,10 @@ class OrderRepository:
     # request làm đổi được đúng một dòng mới được chạy tiếp (hoàn kho, xuất vé…),
     # nên hủy/hết hạn/thanh toán đồng thời không thể cùng thắng.
 
-    def _transition(self, order_id: int, values: dict, *conditions) -> bool:
+    def _transition(self, order_id: int, values: dict, *conditions, from_status: str = "held") -> bool:
         result = self.db.execute(
             update(Order)
-            .where(Order.id == order_id, Order.status == "held", *conditions)
+            .where(Order.id == order_id, Order.status == from_status, *conditions)
             .values(**values)
             .execution_options(synchronize_session="fetch")
         )
@@ -108,3 +110,8 @@ class OrderRepository:
 
     def mark_expired(self, order_id: int, now: datetime) -> bool:
         return self._transition(order_id, {"status": "expired"}, Order.expires_at <= now)
+
+    def mark_refunded(self, order_id: int, user_id: int) -> bool:
+        """Chuyển đơn ĐÃ THANH TOÁN sang `refunded` (khách hủy, hoàn toàn bộ tiền)."""
+        return self._transition(order_id, {"status": "refunded"}, Order.user_id == user_id,
+                                from_status="paid")

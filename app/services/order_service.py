@@ -36,7 +36,17 @@ def release_hold(uow: UnitOfWork, order) -> None:
     Chỉ gọi sau khi câu UPDATE chuyển trạng thái có điều kiện đã đổi đúng một dòng;
     đó là điều bảo đảm mỗi đơn chỉ được hoàn kho một lần.
     """
-    uow.tickets.release(order.id)
+    _return_stock(uow, order, "held")
+
+
+def release_sold(uow: UnitOfWork, order) -> None:
+    """Hoàn kho cho một đơn VỪA rời trạng thái `paid` (hoàn tiền): vé đã bán quay về
+    kho và mã QR bị thu hồi. Cùng điều kiện gọi như `release_hold`."""
+    _return_stock(uow, order, "sold")
+
+
+def _return_stock(uow: UnitOfWork, order, ticket_status: str) -> None:
+    uow.tickets.release(order.id, ticket_status)
     uow.ticket_types.release(order.ticket_type_id, order.quantity)
 
 
@@ -141,7 +151,7 @@ class OrderService:
     # --- Hủy giữ chỗ -------------------------------------------------------
 
     def cancel_order(self, user_id: int, order_id: int):
-        """Hủy đơn đang giữ chỗ. Đơn đã thanh toán là đơn hoàn thành: không hủy ở đây."""
+        """Hủy đơn đang giữ chỗ. Đơn đã thanh toán hủy qua PaymentService.refund_order (hoàn tiền)."""
         return self.execute(lambda: self._cancel_order(user_id, order_id))
 
     def _cancel_order(self, user_id, order_id):

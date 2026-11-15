@@ -59,11 +59,11 @@ class TicketRepository:
         self.db.flush()
         return tickets
 
-    def _held_by_order(self, order_id: int) -> list[Ticket]:
+    def _by_order(self, order_id: int, status: str) -> list[Ticket]:
         return list(
             self.db.scalars(
                 select(Ticket)
-                .where(Ticket.order_id == order_id, Ticket.status == "held")
+                .where(Ticket.order_id == order_id, Ticket.status == status)
                 .order_by(Ticket.id)
                 .with_for_update()
             )
@@ -71,19 +71,23 @@ class TicketRepository:
 
     def sell(self, order_id: int, make_code: Callable[[int], str]) -> list[Ticket]:
         """Xuất vé cho đơn đã thanh toán và sinh mã QR cho từng vé."""
-        tickets = self._held_by_order(order_id)
+        tickets = self._by_order(order_id, "held")
         for ticket in tickets:
             ticket.status = "sold"
             ticket.qr_code = make_code(ticket.id)
         self.db.flush()
         return tickets
 
-    def release(self, order_id: int) -> int:
-        """Trả các vé đang giữ của đơn về trạng thái trống. Trả về số vé đã trả."""
-        tickets = self._held_by_order(order_id)
+    def release(self, order_id: int, status: str = "held") -> int:
+        """Trả các vé của đơn (đang `held`, hoặc `sold` khi hoàn tiền) về trạng thái trống.
+
+        Mã QR cũ bị xóa nên vé hoàn lại không còn quét được. Trả về số vé đã trả.
+        """
+        tickets = self._by_order(order_id, status)
         for ticket in tickets:
             ticket.order_id = None
             ticket.status = "available"
+            ticket.qr_code = None
         self.db.flush()
         return len(tickets)
 

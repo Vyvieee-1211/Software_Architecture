@@ -73,7 +73,8 @@ def get_payment_gateway() -> PaymentGateway:
 
 
 def get_payment_service(gateway: PaymentGateway = Depends(get_payment_gateway)) -> PaymentService:
-    return PaymentService(_uow, gateway, ticket_codes.issue, execute=database_policy.run)
+    return PaymentService(_uow, gateway, ticket_codes.issue, execute=database_policy.run,
+                          refund_cutoff_hours=config.REFUND_CUTOFF_HOURS)
 
 
 _bearer = HTTPBearer(auto_error=False)
