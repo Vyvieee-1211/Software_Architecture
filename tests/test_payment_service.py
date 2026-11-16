@@ -60,7 +60,7 @@ class FakeGateway:
         self.refunds = []
         self.fail = False
 
-    def refund(self, payment_id, amount, reason):
+    def refund(self, payment_id, amount, reason, payment_raw=""):
         self.refunds.append((payment_id, amount, reason))
         if self.fail:
             raise PaymentGatewayError("gateway down")

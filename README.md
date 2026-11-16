@@ -168,7 +168,7 @@ POST /orders            POST /orders/{id}/pay        webhook cổng thanh toán
 
 1. **Giữ chỗ** (`POST /orders`, một transaction): khóa dòng user → kiểm tra `sale_open_time <= now < start_time` → kiểm tra giới hạn vé đang giữ của người dùng (mặc định 10) → trừ tạm `remaining` bằng `UPDATE … WHERE remaining >= quantity` → tạo đơn `held` với `expires_at = now + 12 phút`, chốt `unit_price`/`total_amount` → gán N vé trống trong bảng `tickets` cho đơn (`FOR UPDATE SKIP LOCKED` trên PostgreSQL).
 2. **Thanh toán** (`POST /orders/{id}/pay`): tạo giao dịch ở cổng thanh toán **ngoài** transaction DB, ghi dòng `payment/pending` vào `transactions`, trả `payment_url` để chuyển hướng khách.
-3. **Phản hồi của bên thứ ba** (`POST /payments/webhook`): kiểm tra chữ ký HMAC, ghi sự kiện vào `transactions` (ràng buộc duy nhất → webhook gửi lặp chỉ được xử lý một lần), rồi chuyển trạng thái đơn bằng `UPDATE … WHERE status='held' AND expires_at > now`. Chốt được thì vé chuyển `sold` và sinh mã QR có chữ ký; không chốt được (đơn đã hết hạn, bị hủy, sai số tiền) thì **không xuất vé** và gọi hoàn tiền.
+3. **Phản hồi của bên thứ ba** (`POST /payments/webhook`; VNPay gọi IPN bằng `GET` cùng đường dẫn): kiểm tra chữ ký HMAC, ghi sự kiện vào `transactions` (ràng buộc duy nhất → webhook gửi lặp chỉ được xử lý một lần), rồi chuyển trạng thái đơn bằng `UPDATE … WHERE status='held' AND expires_at > now`. Chốt được thì vé chuyển `sold` và sinh mã QR có chữ ký; không chốt được (đơn đã hết hạn, bị hủy, sai số tiền) thì **không xuất vé** và gọi hoàn tiền.
 4. **Hết hạn**: luồng nền `HoldSweeper` quét đơn `held` quá hạn, mỗi đơn một transaction, chỉ hoàn kho cho đơn thực sự đổi được trạng thái.
 5. **Xuất vé**: `GET /orders/{id}/tickets` trả từng vé với `seat_no` và nội dung QR; `GET /orders/{id}/tickets/{ticket_id}/qr` trả ảnh SVG.
 6. **Hủy đơn đã thanh toán** (`DELETE /orders/{id}` trên đơn `paid`): chỉ nhận khi còn cách giờ diễn ít nhất `REFUND_CUTOFF_HOURS` (mặc định 24h), quá mốc trả `409 RefundWindowClosed`. Một transaction chuyển `paid → refunded` bằng `UPDATE … WHERE status='paid'`, trả vé về kho và xóa mã QR (vé cũ không còn quét được), ghi `refund/pending`; sau đó gọi cổng hoàn toàn bộ tiền **ngoài** transaction và ghi `refund/succeeded|failed`. Cổng hoàn lỗi thì đơn vẫn `refunded`, dòng `refund/pending` không có kết quả là việc của đối soát.
@@ -184,7 +184,15 @@ Mọi lần chuyển trạng thái đơn (`held → paid | expired | cancelled |
 |`tickets`|`ticket_type_id`, `seat_no`, `order_id`, `status`, `qr_code`, `version`|Mỗi vé một dòng, sinh sẵn khi tạo hạng vé; `version` là khóa lạc quan.|
 |`transactions`|`order_id`, `payment_id`, `provider`, `type`, `status`, `amount`, `raw_log`|Log dòng tiền, chỉ ghi thêm; duy nhất theo `(provider, payment_id, type, status)`.|
 
-Cổng thanh toán được trừu tượng hóa bằng giao diện `PaymentGateway` (`app/services/payment_gateway.py`). Bản giả lập `app/integrations/mock_payment.py` đóng vai bên thứ ba (trang thanh toán tại `/mock-gateway/checkout`, webhook ký HMAC-SHA256); nối cổng thật (VNPay, MoMo…) là viết thêm một adapter và đăng ký trong `build_payment_gateway`.
+Cổng thanh toán được trừu tượng hóa bằng giao diện `PaymentGateway` (`app/services/payment_gateway.py`) với ba thao tác: tạo giao dịch, đọc webhook đã kiểm tra chữ ký, hoàn tiền. Chọn adapter bằng `PAYMENT_PROVIDER`:
+
+|`PAYMENT_PROVIDER`|Adapter|Tạo giao dịch|Báo kết quả|Hoàn tiền|
+|-|-|-|-|-|
+|`mock` (mặc định)|`app/integrations/mock_payment.py`|URL trang giả lập `/mock-gateway/checkout`|`POST /payments/webhook`, HMAC-SHA256|luôn thành công|
+|`vnpay`|`app/integrations/vnpay.py`|URL `vpcpay.html` ký HMAC-SHA512 (không gọi API)|IPN `GET /payments/webhook`, HMAC-SHA512; trả `{"RspCode":"00"}`|API `merchant_webapi/api/transaction`, cần `vnp_TransactionNo`/`vnp_PayDate` từ IPN|
+|`momo`|`app/integrations/momo.py`|`POST /v2/gateway/api/create` ký HMAC-SHA256, nhận `payUrl`|IPN `POST /payments/webhook` (JSON), HMAC-SHA256; trả HTTP 204|`POST /v2/gateway/api/refund`, cần `transId` từ IPN|
+
+Vì hoàn tiền ở cổng thật cần mã giao dịch phía cổng, `refund()` nhận thêm `payment_raw` là nguyên văn IPN đã lưu ở `transactions.raw_log` của dòng `payment/succeeded`. Trả tiền xong, cổng thật đưa khách về `GET /payments/return`, endpoint này chỉ chuyển hướng tới `PAYMENT_RETURN_URL` (mặc định `{PUBLIC_BASE_URL}/#/orders`); trạng thái đơn luôn do IPN quyết định. Để thử với sandbox VNPay/MoMo, `PUBLIC_BASE_URL` phải truy cập được từ Internet (vd. qua ngrok) và với VNPay phải khai IPN URL `{PUBLIC_BASE_URL}/payments/webhook` trong trang quản trị merchant. Thông tin tài khoản sandbox đặt trong `VNPAY_TMN_CODE`/`VNPAY_HASH_SECRET` hoặc `MOMO_PARTNER_CODE`/`MOMO_ACCESS_KEY`/`MOMO_SECRET_KEY` (xem `.env.example`).
 
 \---
 
@@ -353,7 +361,9 @@ Khi ứng dụng đang chạy, truy cập:
 |`POST`|`/orders/{id}/pay`|Bearer Token|Tạo giao dịch ở cổng thanh toán, trả `payment_url`. 409 `HoldExpired` nếu quá hạn.|
 |`GET`|`/orders/{id}/tickets`|Bearer Token|Các vé của đơn (`seat_no`, `qr_code` khi đã thanh toán).|
 |`GET`|`/orders/{id}/tickets/{ticket_id}/qr`|Bearer Token|Ảnh QR (SVG) của một vé đã xuất.|
-|`POST`|`/payments/webhook`|Chữ ký HMAC|Cổng thanh toán báo kết quả; 401 `InvalidWebhookSignature`.|
+|`POST`|`/payments/webhook`|Chữ ký HMAC|Cổng thanh toán (mock, MoMo) báo kết quả; 401 `InvalidWebhookSignature`. Với MoMo trả HTTP 204.|
+|`GET`|`/payments/webhook`|Chữ ký HMAC|IPN của VNPay (chỉ khi `PAYMENT_PROVIDER=vnpay`); trả `{"RspCode": "00"\|"02"\|"97"\|"01"}`.|
+|`GET`|`/payments/return`|Không yêu cầu|Cổng thật đưa khách quay lại; chuyển hướng tới `PAYMENT_RETURN_URL`.|
 |`GET`/`POST`|`/mock-gateway/checkout`, `/mock-gateway/pay`|Không yêu cầu|Trang và API của cổng thanh toán giả lập (chỉ khi `PAYMENT_PROVIDER=mock`).|
 |`GET`|`/health`|Không yêu cầu|Kiểm tra trạng thái hoạt động cơ bản của API.|
 

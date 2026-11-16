@@ -329,7 +329,7 @@ def test_refund_gateway_failure_is_logged_for_reconciliation(client, monkeypatch
     h = auth_header(client)
     order = paid_order(client, h, quantity=1)
 
-    def broken_refund(payment_id, amount, reason):
+    def broken_refund(payment_id, amount, reason, payment_raw=""):
         raise PaymentGatewayError("gateway down")
 
     monkeypatch.setattr(deps.payment_gateway, "refund", broken_refund)

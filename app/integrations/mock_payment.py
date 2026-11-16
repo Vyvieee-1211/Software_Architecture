@@ -57,7 +57,8 @@ class MockPaymentGateway:
         except (ValueError, KeyError, TypeError, InvalidOperation) as exc:
             raise InvalidWebhookSignature("malformed webhook body") from exc
 
-    def refund(self, payment_id: str, amount: Decimal, reason: str) -> RefundResult:
+    def refund(self, payment_id: str, amount: Decimal, reason: str,
+               payment_raw: str = "") -> RefundResult:
         return RefundResult(True, {"refund_id": f"mock_rf_{uuid.uuid4().hex}",
                                    "payment_id": payment_id, "amount": str(amount), "reason": reason})
 

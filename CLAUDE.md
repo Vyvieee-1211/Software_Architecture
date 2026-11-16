@@ -40,7 +40,7 @@ Strict three layers, with dependencies pointing downward only:
 - `app/api/` — routers, Pydantic schemas, FastAPI dependencies. Knows HTTP.
 - `app/services/` — business rules. Must not import FastAPI or SQLAlchemy. Services receive a Unit of Work factory and raise plain exceptions from `app/services/errors.py`.
 - `app/repositories/` — SQLAlchemy models, engine/session, one repository class per aggregate, `SqlAlchemyUnitOfWork`, and `resilience.py` (retry + circuit breaker).
-- `app/integrations/` — adapters to external systems; currently only `MockPaymentGateway`, selected by `build_payment_gateway()` from `PAYMENT_PROVIDER`.
+- `app/integrations/` — adapters to external systems: `MockPaymentGateway`, `VNPayGateway`, `MoMoGateway`, selected by `build_payment_gateway()` from `PAYMENT_PROVIDER` (`mock` | `vnpay` | `momo`). Adapters may use `httpx` (constructor takes a `transport` for tests); services never do.
 
 `app/api/deps.py` is the only module that knows both FastAPI and SQLAlchemy.
 
@@ -72,7 +72,7 @@ Per-user hold limit (`MAX_HELD_TICKETS_PER_USER`) is enforced under a `SELECT ..
 
 ### Payments
 
-`PaymentService` never calls the gateway inside a DB transaction: one UoW to validate the order, gateway call, another UoW to record. Webhooks are settled in `_apply`: the `(provider, payment_id, type, status)` unique key on `transactions` makes duplicates no-ops; money that cannot be applied (hold expired, wrong amount) records `refund/pending` and triggers `gateway.refund`. `HoldSweeper` (`app/sweeper.py`) expires overdue holds every `HOLD_SWEEP_INTERVAL_SECONDS`; tests set it to 0 and call `expire_holds()` directly.
+`PaymentService` never calls the gateway inside a DB transaction: one UoW to validate the order, gateway call, another UoW to record. `gateway.refund(..., payment_raw=...)` receives the stored `raw_log` of the `payment/succeeded` event because VNPay (`vnp_TransactionNo`/`vnp_PayDate`) and MoMo (`transId`) need their own transaction id to refund. Webhook delivery differs per provider and is handled in `routers/payments.py`: mock/MoMo `POST /payments/webhook` (MoMo expects 204), VNPay IPN `GET /payments/webhook` with the query string passed as `body` and a `{"RspCode"}` JSON reply; `GET /payments/return` only redirects the customer to `PAYMENT_RETURN_URL`. Webhooks are settled in `_apply`: the `(provider, payment_id, type, status)` unique key on `transactions` makes duplicates no-ops; money that cannot be applied (hold expired, wrong amount) records `refund/pending` and triggers `gateway.refund`. `HoldSweeper` (`app/sweeper.py`) expires overdue holds every `HOLD_SWEEP_INTERVAL_SECONDS`; tests set it to 0 and call `expire_holds()` directly.
 
 QR codes are signed strings from `TicketCodes` (`T<id>.<nonce>.<hmac>`), issued only when tickets become `sold`.
 

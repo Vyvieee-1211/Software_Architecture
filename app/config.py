@@ -55,6 +55,24 @@ PAYMENT_WEBHOOK_SECRET = os.getenv("PAYMENT_WEBHOOK_SECRET", "dev-payment-secret
 TICKET_QR_SECRET = os.getenv("TICKET_QR_SECRET", "dev-ticket-qr-secret-change-me")
 # URL công khai của hệ thống, dùng để tạo đường dẫn thanh toán giả lập.
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
+# Trả tiền xong, cổng thật (VNPay/MoMo) đưa khách quay về /payments/return, rồi được chuyển
+# tiếp tới địa chỉ này. Trạng thái đơn vẫn do IPN quyết định; trang này chỉ hiển thị.
+PAYMENT_RETURN_URL = os.getenv("PAYMENT_RETURN_URL", f"{PUBLIC_BASE_URL}/#/orders")
+# Thời gian chờ tối đa một lời gọi HTTP tới cổng thanh toán thật (giây).
+PAYMENT_GATEWAY_TIMEOUT_SECONDS = _number("PAYMENT_GATEWAY_TIMEOUT_SECONDS", 10, float, 0.1)
+
+# --- VNPay (PAYMENT_PROVIDER=vnpay): tài khoản sandbox tại https://sandbox.vnpayment.vn ---
+# IPN URL khai trong trang quản trị merchant của VNPay: {PUBLIC_BASE_URL}/payments/webhook
+VNPAY_TMN_CODE = os.getenv("VNPAY_TMN_CODE", "")
+VNPAY_HASH_SECRET = os.getenv("VNPAY_HASH_SECRET", "")
+VNPAY_PAY_URL = os.getenv("VNPAY_PAY_URL", "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html")
+VNPAY_API_URL = os.getenv("VNPAY_API_URL", "https://sandbox.vnpayment.vn/merchant_webapi/api/transaction")
+
+# --- MoMo (PAYMENT_PROVIDER=momo): tài khoản sandbox tại https://business.momo.vn ---
+MOMO_PARTNER_CODE = os.getenv("MOMO_PARTNER_CODE", "")
+MOMO_ACCESS_KEY = os.getenv("MOMO_ACCESS_KEY", "")
+MOMO_SECRET_KEY = os.getenv("MOMO_SECRET_KEY", "")
+MOMO_API_URL = os.getenv("MOMO_API_URL", "https://test-payment.momo.vn/v2/gateway/api")
 
 # PostgreSQL: giới hạn chờ khóa và thời gian chạy một câu lệnh (mili giây); 0 = không giới hạn.
 DB_PG_LOCK_TIMEOUT_MS = _number("DB_PG_LOCK_TIMEOUT_MS", 3000, int, 0)

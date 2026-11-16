@@ -115,7 +115,8 @@ class PaymentService:
         event = self.gateway.parse_webhook(headers, body)  # ném lỗi nếu sai chữ ký
         outcome = self.execute(lambda: self._apply(event))
         if outcome.result == "refund_pending":
-            self._refund(outcome.order.id, event.payment_id, outcome.refund_amount)
+            self._refund(outcome.order.id, event.payment_id, outcome.refund_amount,
+                         payment_raw=event.raw)
         return outcome
 
     def _apply(self, event: PaymentEvent) -> WebhookOutcome:
@@ -162,11 +163,13 @@ class PaymentService:
         return outcome
 
     def _refund(self, order_id: int, payment_id: str, amount: Decimal,
-                reason: str = "order could not be confirmed") -> None:
+                reason: str = "order could not be confirmed", payment_raw: str = "") -> None:
         """Gọi cổng hoàn tiền rồi ghi kết quả. Dòng `refund/pending` không có kết quả
-        tương ứng (vd. tiến trình chết giữa chừng) là việc để đối soát xử lý lại."""
+        tương ứng (vd. tiến trình chết giữa chừng) là việc để đối soát xử lý lại.
+
+        `payment_raw`: nguyên văn webhook thu tiền, cổng thật cần mã giao dịch trong đó."""
         try:
-            refund = self.gateway.refund(payment_id, amount, reason)
+            refund = self.gateway.refund(payment_id, amount, reason, payment_raw=payment_raw)
         except PaymentGatewayError as exc:
             refund = RefundResult(False, {"error": str(exc)})
         raw_log = json.dumps({"event": "refund_result", "gateway": refund.raw},
@@ -184,8 +187,9 @@ class PaymentService:
         `refund/pending`; (2) gọi cổng hoàn tiền ngoài transaction; (3) ghi kết quả.
         Hai request hủy cùng lúc: chỉ request đổi được dòng đơn mới hoàn kho và gọi cổng.
         """
-        order, payment_id = self.execute(lambda: self._begin_refund(user_id, order_id))
-        self._refund(order.id, payment_id, order.total_amount, "cancelled by customer")
+        order, payment_id, payment_raw = self.execute(lambda: self._begin_refund(user_id, order_id))
+        self._refund(order.id, payment_id, order.total_amount, "cancelled by customer",
+                     payment_raw=payment_raw)
         return order
 
     def _begin_refund(self, user_id, order_id):
@@ -208,7 +212,7 @@ class PaymentService:
             payment = uow.transactions.succeeded_payment(order_id)
             if payment is None:  # đơn paid luôn có giao dịch thu tiền; thiếu là dữ liệu hỏng
                 raise InvalidState("order has no settled payment to refund")
-            payment_id = payment.payment_id
+            payment_id, payment_raw = payment.payment_id, payment.raw_log
 
             # Trạng thái đã đọc có thể cũ; DB quyết định request nào được hoàn kho.
             if not uow.orders.mark_refunded(order_id, user_id):
@@ -221,4 +225,4 @@ class PaymentService:
             )
             result = OrderData.from_order(order)
             uow.commit()
-        return result, payment_id
+        return result, payment_id, payment_raw

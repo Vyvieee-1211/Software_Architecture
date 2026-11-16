@@ -1,0 +1,797 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" type="device">
+  <diagram id="p1" name="1. Tổng quan Phase 2">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1150" math="0" shadow="0">
+      <root>
+        <mxCell id="p1-root" />
+        <mxCell id="p1-layer" parent="p1-root" />
+        <mxCell id="p1-1" value="&lt;b style='font-size:22px'&gt;Concert Ticketing — Kiến trúc Phase 2&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;Các số ①–⑦ ứng với bảng phân công ở cuối trang. Màu = người phụ trách.&lt;/span&gt;" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=12;" vertex="1" parent="p1-layer">
+          <mxGeometry x="20" y="10" width="1200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-2" value="Vy" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="p1-layer">
+          <mxGeometry x="1240" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-3" value="Hiếu" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p1-layer">
+          <mxGeometry x="1385" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-4" value="Thuý" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="p1-layer">
+          <mxGeometry x="1530" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-5" value="Giữ từ Phase 1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="p1-layer">
+          <mxGeometry x="1240" y="44" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-6" value="Bên ngoài" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p1-layer">
+          <mxGeometry x="1385" y="44" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-7" value="&lt;b&gt;Trình duyệt&lt;/b&gt;&lt;br&gt;frontend/ (HTML/JS)&lt;br&gt;gửi kèm Idempotency-Key" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-layer">
+          <mxGeometry x="20" y="330" width="170" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-8" value="&lt;b&gt;Locust&lt;/b&gt;&lt;br&gt;kiểm thử tải" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p1-layer">
+          <mxGeometry x="20" y="190" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-9" value="&lt;b&gt;Nginx&lt;/b&gt;&lt;br&gt;Load balancer&lt;br&gt;TLS · rate limit" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#ffffff;strokeColor=#666666;" vertex="1" parent="p1-layer">
+          <mxGeometry x="240" y="330" width="150" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-10" value="API Service × N &amp;nbsp;(FastAPI · stateless · JWT)" style="swimlane;whiteSpace=wrap;html=1;startSize=30;rounded=1;arcSize=4;fillColor=#fafafa;strokeColor=#666666;fontStyle=1;fontSize=13;swimlaneFillColor=#fafafa;" vertex="1" parent="p1-layer">
+          <mxGeometry x="440" y="140" width="420" height="560" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-11" value="&lt;b&gt;Routers&lt;/b&gt;: /auth · /concerts · /orders · /order-requests · /payments · /webhooks/payment" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="p1-10">
+          <mxGeometry x="20" y="45" width="380" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-12" value="&lt;b&gt;⑤ Idempotency Middleware&lt;/b&gt;&lt;br&gt;trùng Idempotency-Key → trả lại kết quả cũ" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="p1-10">
+          <mxGeometry x="20" y="100" width="185" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-13" value="&lt;b&gt;④ Error handler&lt;/b&gt;&lt;br&gt;lỗi DB tạm thời → 503 + Retry-After" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p1-10">
+          <mxGeometry x="215" y="100" width="185" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-14" value="&lt;b&gt;③ OrderService.place()&lt;/b&gt;&lt;br&gt;kiểm tra → đẩy PlaceOrderCommand → 202" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="p1-10">
+          <mxGeometry x="20" y="175" width="185" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-15" value="&lt;b&gt;② CancelOrderService&lt;/b&gt;&lt;br&gt;OrderStateMachine + UPDATE có điều kiện" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p1-10">
+          <mxGeometry x="215" y="175" width="185" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-16" value="&lt;b&gt;⑦ PaymentService&lt;/b&gt;&lt;br&gt;tạo giao dịch · hoàn tiền" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="p1-10">
+          <mxGeometry x="20" y="255" width="185" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-17" value="&lt;b&gt;⑦ PaymentWebhookHandler&lt;/b&gt;&lt;br&gt;xác minh chữ ký · ghi ledger" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="p1-10">
+          <mxGeometry x="215" y="255" width="185" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-18" value="&lt;b&gt;⑥ Unit of Work&lt;/b&gt; — service tự mở / commit / rollback transaction; các repository dùng chung một session" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p1-10">
+          <mxGeometry x="20" y="335" width="380" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-19" value="&lt;b&gt;① Repositories&lt;/b&gt;: user · concert · ticket_type · order · payment · ledger · idempotency" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="p1-10">
+          <mxGeometry x="20" y="405" width="380" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-20" value="&lt;b&gt;④ Retry (backoff + jitter) + Circuit Breaker&lt;/b&gt;&lt;br&gt;bọc mọi lời gọi tới PostgreSQL và cổng thanh toán" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p1-10">
+          <mxGeometry x="20" y="475" width="380" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-21" value="&lt;b&gt;Redis&lt;/b&gt;&lt;br&gt;③ Queue: orders:{ticket_type_id}&lt;br&gt;③ Trạng thái yêu cầu: order_req:{id}&lt;br&gt;Cache danh sách concert (TTL 30s)" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p1-layer">
+          <mxGeometry x="920" y="140" width="280" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-22" value="&lt;b&gt;③ Order Worker × M&lt;/b&gt;&lt;br&gt;mỗi ticket_type do 1 worker xử lý tuần tự&lt;br&gt;⑥ UoW: trừ vé + tạo đơn PENDING_PAYMENT&lt;br&gt;④ Retry + Circuit Breaker" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p1-layer">
+          <mxGeometry x="920" y="320" width="280" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-23" value="&lt;b&gt;⑦ Hold Expiry Job&lt;/b&gt; (mỗi 30s)&lt;br&gt;PENDING_PAYMENT quá 10 phút → EXPIRED, nhả vé" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="p1-layer">
+          <mxGeometry x="920" y="510" width="280" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-24" value="&lt;b&gt;① PostgreSQL&lt;/b&gt;&lt;br&gt;khoá theo dòng (row-level lock)&lt;br&gt;&lt;br&gt;users · concerts · ticket_types&lt;br&gt;orders (+version) · payments&lt;br&gt;ledger_entries · idempotency_keys&lt;br&gt;order_status_history" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="p1-layer">
+          <mxGeometry x="1270" y="250" width="240" height="260" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-25" value="&lt;b&gt;Cổng thanh toán&lt;/b&gt;&lt;br&gt;VNPay / MoMo (sandbox)&lt;br&gt;&lt;i&gt;hệ thống bên ngoài&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p1-layer">
+          <mxGeometry x="1270" y="580" width="240" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-26" value="HTTPS · JWT&lt;br&gt;Idempotency-Key" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p1-layer" source="p1-7" target="p1-9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-27" value="tải" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p1-layer" source="p1-8" target="p1-9">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="315" y="220" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p1-28" value="chia đều" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p1-layer" source="p1-9" target="p1-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-29" value="③ LPUSH command" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;exitX=1;exitY=0.25;entryX=0;entryY=0.75;" edge="1" parent="p1-layer" source="p1-14" target="p1-21">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-30" value="cache · trạng thái yêu cầu" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;strokeColor=#666666;entryX=0;entryY=0.3;" edge="1" parent="p1-layer" source="p1-11" target="p1-21">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-31" value="③ BRPOP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p1-layer" source="p1-21" target="p1-22">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-32" value="⑥ 1 transaction" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p1-layer" source="p1-22" target="p1-24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-33" value="SQL qua UoW" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" edge="1" parent="p1-layer" source="p1-20" target="p1-24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-34" value="UPDATE … EXPIRED" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;entryX=0.3;entryY=1;" edge="1" parent="p1-layer" source="p1-23" target="p1-24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p1-35" value="⑦ tạo giao dịch (④ Circuit Breaker)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0;entryY=0.7;" edge="1" parent="p1-layer" source="p1-16" target="p1-25">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="552" y="730" />
+              <mxPoint x="1240" y="730" />
+              <mxPoint x="1240" y="650" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p1-36" value="⑦ webhook / IPN (ký HMAC)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;exitX=0;exitY=0.3;entryX=1;entryY=0.5;" edge="1" parent="p1-layer" source="p1-25" target="p1-17">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1230" y="610" />
+              <mxPoint x="1230" y="640" />
+              <mxPoint x="890" y="640" />
+              <mxPoint x="890" y="427" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p1-37" value="chuyển hướng sang trang thanh toán" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;strokeColor=#666666;exitX=0.5;exitY=1;entryX=0.5;entryY=1;" edge="1" parent="p1-layer" source="p1-7" target="p1-25">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="105" y="770" />
+              <mxPoint x="1390" y="770" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p1-38" value="&lt;table style='border-collapse:collapse;width:100%;font-size:12px' border='1' cellpadding='5'&gt;&#10;&lt;tr style='background:#eeeeee'&gt;&lt;th&gt;#&lt;/th&gt;&lt;th&gt;Vấn đề Phase 1&lt;/th&gt;&lt;th&gt;Giải pháp / pattern&lt;/th&gt;&lt;th&gt;Nằm ở&lt;/th&gt;&lt;th&gt;Phụ trách&lt;/th&gt;&lt;/tr&gt;&#10;&lt;tr&gt;&lt;td&gt;①&lt;/td&gt;&lt;td&gt;SQLite khoá cả file khi ghi&lt;/td&gt;&lt;td&gt;Đổi sang PostgreSQL, thiết kế lại bảng (orders.version, payments, ledger_entries, idempotency_keys)&lt;/td&gt;&lt;td&gt;PostgreSQL · Repositories&lt;/td&gt;&lt;td&gt;Vy&lt;/td&gt;&lt;/tr&gt;&#10;&lt;tr&gt;&lt;td&gt;②&lt;/td&gt;&lt;td&gt;Huỷ 1 đơn 2 lần đồng thời → hoàn vé 2 lần&lt;/td&gt;&lt;td&gt;Optimistic Concurrency (UPDATE … WHERE status AND version) + State pattern&lt;/td&gt;&lt;td&gt;CancelOrderService&lt;/td&gt;&lt;td&gt;Hiếu&lt;/td&gt;&lt;/tr&gt;&#10;&lt;tr&gt;&lt;td&gt;③&lt;/td&gt;&lt;td&gt;100 người đặt cùng lúc → timeout&lt;/td&gt;&lt;td&gt;Queue-Based Load Leveling + Command (PlaceOrderCommand), trả 202 rồi polling&lt;/td&gt;&lt;td&gt;Redis · Order Worker&lt;/td&gt;&lt;td&gt;Thuý&lt;/td&gt;&lt;/tr&gt;&#10;&lt;tr&gt;&lt;td&gt;④&lt;/td&gt;&lt;td&gt;Lỗi DB treo / HTTP 500&lt;/td&gt;&lt;td&gt;Retry (backoff + jitter) + Circuit Breaker, fail fast 503&lt;/td&gt;&lt;td&gt;Resilience · Error handler&lt;/td&gt;&lt;td&gt;Hiếu&lt;/td&gt;&lt;/tr&gt;&#10;&lt;tr&gt;&lt;td&gt;⑤&lt;/td&gt;&lt;td&gt;Timeout → thử lại tạo đơn trùng&lt;/td&gt;&lt;td&gt;Idempotency Key (bảng idempotency_keys, UNIQUE(user_id, key))&lt;/td&gt;&lt;td&gt;Idempotency Middleware&lt;/td&gt;&lt;td&gt;Thuý&lt;/td&gt;&lt;/tr&gt;&#10;&lt;tr&gt;&lt;td&gt;⑥&lt;/td&gt;&lt;td&gt;Ranh giới transaction nằm ở tầng API&lt;/td&gt;&lt;td&gt;Unit of Work&lt;/td&gt;&lt;td&gt;Service · Worker&lt;/td&gt;&lt;td&gt;Hiếu&lt;/td&gt;&lt;/tr&gt;&#10;&lt;tr&gt;&lt;td&gt;⑦&lt;/td&gt;&lt;td&gt;Chưa có thanh toán, chưa có log dòng tiền&lt;/td&gt;&lt;td&gt;PaymentService + webhook + ledger_entries chỉ ghi thêm (append-only), giữ vé 10 phút&lt;/td&gt;&lt;td&gt;Payment · Hold Expiry Job&lt;/td&gt;&lt;td&gt;Vy&lt;/td&gt;&lt;/tr&gt;&#10;&lt;/table&gt;" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=12;" vertex="1" parent="p1-layer">
+          <mxGeometry x="20" y="800" width="1490" height="280" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p2" name="2. Luồng đặt vé &amp; thanh toán">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1150" math="0" shadow="0">
+      <root>
+        <mxCell id="p2-root" />
+        <mxCell id="p2-layer" parent="p2-root" />
+        <mxCell id="p2-1" value="&lt;b style='font-size:22px'&gt;Luồng đặt vé và thanh toán&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;Từ lúc bấm đặt đến lúc đơn được thanh toán hoặc hết hạn. Mũi tên nét đứt = phản hồi.&lt;/span&gt;" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=12;" vertex="1" parent="p2-layer">
+          <mxGeometry x="20" y="10" width="1200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-2" value="Vy" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="p2-layer">
+          <mxGeometry x="1240" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-3" value="Hiếu" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p2-layer">
+          <mxGeometry x="1385" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-4" value="Thuý" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="p2-layer">
+          <mxGeometry x="1530" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-5" value="Giữ từ Phase 1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="p2-layer">
+          <mxGeometry x="1240" y="44" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-6" value="Bên ngoài" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p2-layer">
+          <mxGeometry x="1385" y="44" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-7" value="&lt;b&gt;Client&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p2-layer">
+          <mxGeometry x="15" y="80" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-8" value="" style="endArrow=none;dashed=1;strokeColor=#999999;html=1;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="90" y="130" as="sourcePoint" />
+            <mxPoint x="90" y="1100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-9" value="&lt;b&gt;API&lt;br&gt;(Nginx → FastAPI)&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#ffffff;strokeColor=#666666;" vertex="1" parent="p2-layer">
+          <mxGeometry x="215" y="80" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-10" value="" style="endArrow=none;dashed=1;strokeColor=#999999;html=1;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="130" as="sourcePoint" />
+            <mxPoint x="290" y="1100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-11" value="&lt;b&gt;Redis&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p2-layer">
+          <mxGeometry x="415" y="80" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-12" value="" style="endArrow=none;dashed=1;strokeColor=#999999;html=1;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="490" y="130" as="sourcePoint" />
+            <mxPoint x="490" y="1100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-13" value="&lt;b&gt;Order Worker&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p2-layer">
+          <mxGeometry x="615" y="80" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-14" value="" style="endArrow=none;dashed=1;strokeColor=#999999;html=1;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="690" y="130" as="sourcePoint" />
+            <mxPoint x="690" y="1100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-15" value="&lt;b&gt;PostgreSQL&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="p2-layer">
+          <mxGeometry x="815" y="80" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-16" value="" style="endArrow=none;dashed=1;strokeColor=#999999;html=1;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="890" y="130" as="sourcePoint" />
+            <mxPoint x="890" y="1100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-17" value="&lt;b&gt;Cổng thanh toán&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p2-layer">
+          <mxGeometry x="1015" y="80" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-18" value="" style="endArrow=none;dashed=1;strokeColor=#999999;html=1;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1090" y="130" as="sourcePoint" />
+            <mxPoint x="1090" y="1100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-19" value="&lt;b&gt;Hold Expiry Job&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="p2-layer">
+          <mxGeometry x="1215" y="80" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-20" value="" style="endArrow=none;dashed=1;strokeColor=#999999;html=1;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1290" y="130" as="sourcePoint" />
+            <mxPoint x="1290" y="1100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-21" value="POST /orders {ticket_type_id, quantity}&lt;br&gt;Idempotency-Key: k1" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="90" y="160" as="sourcePoint" />
+            <mxPoint x="290" y="160" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-22" value="⑤ tìm idempotency_keys (user, k1); chưa có → INSERT IN_PROGRESS" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="205" as="sourcePoint" />
+            <mxPoint x="890" y="205" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-23" value="③ LPUSH orders:{tt} PlaceOrderCommand" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="250" as="sourcePoint" />
+            <mxPoint x="490" y="250" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-24" value="202 Accepted {request_id}" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;strokeColor=#666666;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="290" as="sourcePoint" />
+            <mxPoint x="90" y="290" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-25" value="③ BRPOP (tuần tự theo ticket_type)" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="490" y="335" as="sourcePoint" />
+            <mxPoint x="690" y="335" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-26" value="⑥ BEGIN · UPDATE ticket_types SET remaining = remaining − q WHERE id = ? AND remaining ≥ q" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="690" y="380" as="sourcePoint" />
+            <mxPoint x="890" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-27" value="INSERT orders (PENDING_PAYMENT, hold_expires_at = now + 10')" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="690" y="420" as="sourcePoint" />
+            <mxPoint x="890" y="420" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-28" value="idempotency_keys → COMPLETED + response · COMMIT" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="690" y="460" as="sourcePoint" />
+            <mxPoint x="890" y="460" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-29" value="SET order_req:{id} = order_id | SOLD_OUT" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="690" y="500" as="sourcePoint" />
+            <mxPoint x="490" y="500" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-30" value="GET /order-requests/{id} (polling)" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="90" y="620" as="sourcePoint" />
+            <mxPoint x="290" y="620" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-31" value="GET order_req:{id}" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="655" as="sourcePoint" />
+            <mxPoint x="490" y="655" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-32" value="200 {order_id, status: PENDING_PAYMENT}" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;strokeColor=#666666;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="690" as="sourcePoint" />
+            <mxPoint x="90" y="690" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-33" value="POST /orders/{id}/payments" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="90" y="735" as="sourcePoint" />
+            <mxPoint x="290" y="735" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-34" value="⑦ INSERT payments (INITIATED)" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="770" as="sourcePoint" />
+            <mxPoint x="890" y="770" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-35" value="⑦ tạo giao dịch (④ Circuit Breaker)" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="805" as="sourcePoint" />
+            <mxPoint x="1090" y="805" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-36" value="payment_url → chuyển hướng" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;strokeColor=#666666;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="840" as="sourcePoint" />
+            <mxPoint x="90" y="840" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-37" value="⑦ webhook / IPN (ký HMAC, provider_txn_id)" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1090" y="885" as="sourcePoint" />
+            <mxPoint x="290" y="885" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-38" value="⑥ BEGIN · payments SUCCEEDED · orders PENDING_PAYMENT → PAID (có điều kiện) · INSERT ledger_entries CHARGE · COMMIT" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="930" as="sourcePoint" />
+            <mxPoint x="890" y="930" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-39" value="200 OK (webhook lặp lại → bỏ qua nhờ UNIQUE provider_txn_id)" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;strokeColor=#666666;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="290" y="970" as="sourcePoint" />
+            <mxPoint x="1090" y="970" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-40" value="UPDATE orders SET EXPIRED WHERE status = PENDING_PAYMENT AND hold_expires_at &amp;lt; now · cộng lại remaining" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p2-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1290" y="1060" as="sourcePoint" />
+            <mxPoint x="890" y="1060" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p2-41" value="&lt;b&gt;alt&lt;/b&gt; &amp;nbsp;rowcount = 0 → ROLLBACK, order_req = SOLD_OUT (409)&amp;nbsp;&amp;nbsp;|&amp;nbsp;&amp;nbsp;lỗi DB tạm thời → ④ Retry 3 lần (backoff); lỗi liên tục → Circuit Breaker mở, trả 503" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#fff7ed;strokeColor=#c2410c;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="p2-layer">
+          <mxGeometry x="200" y="520" width="1000" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="p2-42" value="&lt;b&gt;alt&lt;/b&gt; &amp;nbsp;không thanh toán trong 10 phút → Hold Expiry Job nhả vé trong cùng một transaction" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#fff7ed;strokeColor=#c2410c;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="p2-layer">
+          <mxGeometry x="200" y="995" width="1200" height="40" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p3" name="3. Cơ sở dữ liệu ①">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="p3-root" />
+        <mxCell id="p3-layer" parent="p3-root" />
+        <mxCell id="p3-1" value="&lt;b style='font-size:22px'&gt;① Thiết kế cơ sở dữ liệu — PostgreSQL&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;Phụ trách: Vy. Bảng tím là bảng mới hoặc có cột mới so với Phase 1.&lt;/span&gt;" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=12;" vertex="1" parent="p3-layer">
+          <mxGeometry x="20" y="10" width="1200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-2" value="Vy" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="p3-layer">
+          <mxGeometry x="1240" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-3" value="Hiếu" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p3-layer">
+          <mxGeometry x="1385" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-4" value="Thuý" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="p3-layer">
+          <mxGeometry x="1530" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-5" value="Giữ từ Phase 1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="p3-layer">
+          <mxGeometry x="1240" y="44" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-6" value="Bên ngoài" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p3-layer">
+          <mxGeometry x="1385" y="44" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-7" value="users" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeLast=0;collapsible=1;marginBottom=0;html=1;fontSize=13;fillColor=#f5f5f5;strokeColor=#666666;swimlaneFillColor=#ffffff;" vertex="1" parent="p3-layer">
+          <mxGeometry x="40" y="90" width="320" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-8" value="id PK" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-7">
+          <mxGeometry x="0" y="30" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-9" value="email UNIQUE" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-7">
+          <mxGeometry x="0" y="56" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-10" value="password_hash (bcrypt)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-7">
+          <mxGeometry x="0" y="82" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-11" value="full_name" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-7">
+          <mxGeometry x="0" y="108" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-12" value="created_at" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-7">
+          <mxGeometry x="0" y="134" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-13" value="orders" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeLast=0;collapsible=1;marginBottom=0;html=1;fontSize=13;fillColor=#e1d5e7;strokeColor=#9673a6;swimlaneFillColor=#ffffff;" vertex="1" parent="p3-layer">
+          <mxGeometry x="420" y="90" width="360" height="290" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-14" value="id PK" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-13">
+          <mxGeometry x="0" y="30" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-15" value="user_id FK → users" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-13">
+          <mxGeometry x="0" y="56" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-16" value="ticket_type_id FK → ticket_types" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-13">
+          <mxGeometry x="0" y="82" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-17" value="quantity CHECK 1..10" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-13">
+          <mxGeometry x="0" y="108" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-18" value="unit_price · total_amount" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-13">
+          <mxGeometry x="0" y="134" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-19" value="status ENUM (PENDING_PAYMENT, PAID, CANCELLED, EXPIRED)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-13">
+          <mxGeometry x="0" y="160" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-20" value="&lt;b&gt;version INT&lt;/b&gt; ②" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-13">
+          <mxGeometry x="0" y="186" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-21" value="&lt;b&gt;hold_expires_at&lt;/b&gt; ⑦" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-13">
+          <mxGeometry x="0" y="212" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-22" value="created_at · updated_at" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-13">
+          <mxGeometry x="0" y="238" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-23" value="INDEX (status, hold_expires_at)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-13">
+          <mxGeometry x="0" y="264" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-24" value="ticket_types" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeLast=0;collapsible=1;marginBottom=0;html=1;fontSize=13;fillColor=#f5f5f5;strokeColor=#666666;swimlaneFillColor=#ffffff;" vertex="1" parent="p3-layer">
+          <mxGeometry x="840" y="90" width="320" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-25" value="id PK" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-24">
+          <mxGeometry x="0" y="30" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-26" value="concert_id FK → concerts" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-24">
+          <mxGeometry x="0" y="56" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-27" value="name · price NUMERIC(12,2)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-24">
+          <mxGeometry x="0" y="82" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-28" value="total_quantity" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-24">
+          <mxGeometry x="0" y="108" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-29" value="remaining CHECK 0 ≤ remaining ≤ total" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-24">
+          <mxGeometry x="0" y="134" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-30" value="concerts" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeLast=0;collapsible=1;marginBottom=0;html=1;fontSize=13;fillColor=#f5f5f5;strokeColor=#666666;swimlaneFillColor=#ffffff;" vertex="1" parent="p3-layer">
+          <mxGeometry x="1220" y="90" width="280" height="134" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-31" value="id PK" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-30">
+          <mxGeometry x="0" y="30" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-32" value="name · artist · venue" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-30">
+          <mxGeometry x="0" y="56" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-33" value="start_time" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-30">
+          <mxGeometry x="0" y="82" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-34" value="sale_open_time" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-30">
+          <mxGeometry x="0" y="108" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-35" value="idempotency_keys ⑤" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeLast=0;collapsible=1;marginBottom=0;html=1;fontSize=13;fillColor=#e1d5e7;strokeColor=#9673a6;swimlaneFillColor=#ffffff;" vertex="1" parent="p3-layer">
+          <mxGeometry x="40" y="520" width="320" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-36" value="PK (user_id, key)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-35">
+          <mxGeometry x="0" y="30" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-37" value="request_hash" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-35">
+          <mxGeometry x="0" y="56" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-38" value="status IN_PROGRESS | COMPLETED" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-35">
+          <mxGeometry x="0" y="82" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-39" value="response_code · response_body JSONB" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-35">
+          <mxGeometry x="0" y="108" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-40" value="created_at · expires_at" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-35">
+          <mxGeometry x="0" y="134" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-41" value="payments ⑦" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeLast=0;collapsible=1;marginBottom=0;html=1;fontSize=13;fillColor=#e1d5e7;strokeColor=#9673a6;swimlaneFillColor=#ffffff;" vertex="1" parent="p3-layer">
+          <mxGeometry x="420" y="520" width="360" height="212" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-42" value="id PK" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-41">
+          <mxGeometry x="0" y="30" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-43" value="order_id FK → orders" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-41">
+          <mxGeometry x="0" y="56" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-44" value="provider (VNPAY, MOMO)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-41">
+          <mxGeometry x="0" y="82" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-45" value="provider_txn_id UNIQUE" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-41">
+          <mxGeometry x="0" y="108" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-46" value="amount" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-41">
+          <mxGeometry x="0" y="134" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-47" value="status INITIATED | SUCCEEDED | FAILED | REFUNDED" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-41">
+          <mxGeometry x="0" y="160" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-48" value="created_at · updated_at" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-41">
+          <mxGeometry x="0" y="186" width="360" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-49" value="ledger_entries ⑦ (chỉ INSERT)" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeLast=0;collapsible=1;marginBottom=0;html=1;fontSize=13;fillColor=#e1d5e7;strokeColor=#9673a6;swimlaneFillColor=#ffffff;" vertex="1" parent="p3-layer">
+          <mxGeometry x="840" y="520" width="320" height="186" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-50" value="id PK" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-49">
+          <mxGeometry x="0" y="30" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-51" value="order_id FK · payment_id FK" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-49">
+          <mxGeometry x="0" y="56" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-52" value="entry_type CHARGE | REFUND" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-49">
+          <mxGeometry x="0" y="82" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-53" value="direction IN | OUT" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-49">
+          <mxGeometry x="0" y="108" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-54" value="amount CHECK &gt; 0 · currency VND" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-49">
+          <mxGeometry x="0" y="134" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-55" value="created_at" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-49">
+          <mxGeometry x="0" y="160" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-56" value="order_status_history ②" style="swimlane;fontStyle=1;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeLast=0;collapsible=1;marginBottom=0;html=1;fontSize=13;fillColor=#e1d5e7;strokeColor=#9673a6;swimlaneFillColor=#ffffff;" vertex="1" parent="p3-layer">
+          <mxGeometry x="1220" y="520" width="280" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-57" value="id PK" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-56">
+          <mxGeometry x="0" y="30" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-58" value="order_id FK → orders" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-56">
+          <mxGeometry x="0" y="56" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-59" value="from_status → to_status" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-56">
+          <mxGeometry x="0" y="82" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-60" value="reason · actor" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-56">
+          <mxGeometry x="0" y="108" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-61" value="changed_at" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=8;html=1;fontSize=11;fontFamily=Consolas;" vertex="1" parent="p3-56">
+          <mxGeometry x="0" y="134" width="280" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-62" value="" style="edgeStyle=entityRelationEdgeStyle;fontSize=11;html=1;endArrow=ERmany;startArrow=ERmandOne;endFill=0;startFill=0;strokeWidth=1.3;" edge="1" parent="p3-layer" source="p3-7" target="p3-13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-63" value="" style="edgeStyle=entityRelationEdgeStyle;fontSize=11;html=1;endArrow=ERmany;startArrow=ERmandOne;endFill=0;startFill=0;strokeWidth=1.3;" edge="1" parent="p3-layer" source="p3-24" target="p3-13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-64" value="" style="edgeStyle=entityRelationEdgeStyle;fontSize=11;html=1;endArrow=ERmany;startArrow=ERmandOne;endFill=0;startFill=0;strokeWidth=1.3;" edge="1" parent="p3-layer" source="p3-30" target="p3-24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-65" value="" style="edgeStyle=orthogonalEdgeStyle;fontSize=11;html=1;endArrow=ERmany;startArrow=ERmandOne;endFill=0;startFill=0;strokeWidth=1.3;" edge="1" parent="p3-layer" source="p3-7" target="p3-35">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-66" value="" style="edgeStyle=orthogonalEdgeStyle;fontSize=11;html=1;endArrow=ERmany;startArrow=ERmandOne;endFill=0;startFill=0;strokeWidth=1.3;" edge="1" parent="p3-layer" source="p3-13" target="p3-41">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-67" value="" style="edgeStyle=entityRelationEdgeStyle;fontSize=11;html=1;endArrow=ERmany;startArrow=ERmandOne;endFill=0;startFill=0;strokeWidth=1.3;" edge="1" parent="p3-layer" source="p3-41" target="p3-49">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-68" value="" style="edgeStyle=orthogonalEdgeStyle;fontSize=11;html=1;endArrow=ERmany;startArrow=ERmandOne;endFill=0;startFill=0;strokeWidth=1.3;exitX=1;exitY=0.85;entryX=0.5;entryY=0;" edge="1" parent="p3-layer" source="p3-13" target="p3-56">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p3-69" value="&lt;b&gt;Ghi chú thiết kế&lt;/b&gt;&lt;ul&gt;&lt;li&gt;Giữ UPDATE có điều kiện khi trừ vé; PostgreSQL chỉ khoá dòng ticket_type đang bán, các loại vé khác không phải chờ nhau.&lt;/li&gt;&lt;li&gt;ledger_entries là log dòng tiền: thu quyền UPDATE/DELETE, mọi điều chỉnh là một dòng mới (REFUND).&lt;/li&gt;&lt;li&gt;Đối soát: tổng CHARGE − tổng REFUND theo order = số tiền thực thu; confirmed + remaining = total_quantity.&lt;/li&gt;&lt;li&gt;payments.provider_txn_id UNIQUE để webhook gửi lặp không ghi tiền hai lần.&lt;/li&gt;&lt;li&gt;Isolation READ COMMITTED là đủ vì các thay đổi trạng thái đều qua UPDATE có điều kiện.&lt;/li&gt;&lt;/ul&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#ffffff;strokeColor=#666666;align=left;verticalAlign=top;spacingLeft=10;" vertex="1" parent="p3-layer">
+          <mxGeometry x="40" y="790" width="1460" height="160" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p4" name="4. Trạng thái đơn ②">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="p4-root" />
+        <mxCell id="p4-layer" parent="p4-root" />
+        <mxCell id="p4-1" value="&lt;b style='font-size:22px'&gt;② Trạng thái đơn và huỷ đồng thời&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;Phụ trách: Hiếu. Mọi chuyển trạng thái đi qua OrderStateMachine và một câu UPDATE có điều kiện.&lt;/span&gt;" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=12;" vertex="1" parent="p4-layer">
+          <mxGeometry x="20" y="10" width="1200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-2" value="Vy" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="p4-layer">
+          <mxGeometry x="1240" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-3" value="Hiếu" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p4-layer">
+          <mxGeometry x="1385" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-4" value="Thuý" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="p4-layer">
+          <mxGeometry x="1530" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-5" value="Giữ từ Phase 1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="p4-layer">
+          <mxGeometry x="1240" y="44" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-6" value="Bên ngoài" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p4-layer">
+          <mxGeometry x="1385" y="44" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-7" value="" style="ellipse;html=1;fillColor=#000000;strokeColor=#000000;" vertex="1" parent="p4-layer">
+          <mxGeometry x="40" y="225" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-8" value="&lt;b&gt;QUEUED&lt;/b&gt;&lt;br&gt;&lt;i&gt;(trong Redis)&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p4-layer">
+          <mxGeometry x="120" y="210" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-9" value="&lt;b&gt;REJECTED&lt;/b&gt;&lt;br&gt;SoldOut" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fontSize=12;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p4-layer">
+          <mxGeometry x="120" y="420" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-10" value="&lt;b&gt;PENDING_PAYMENT&lt;/b&gt;&lt;br&gt;giữ vé 10 phút" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="p4-layer">
+          <mxGeometry x="420" y="210" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-11" value="&lt;b&gt;PAID&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p4-layer">
+          <mxGeometry x="760" y="210" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-12" value="&lt;b&gt;EXPIRED&lt;/b&gt;&lt;br&gt;đã nhả vé" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p4-layer">
+          <mxGeometry x="420" y="420" width="190" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-13" value="&lt;b&gt;CANCELLED&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="p4-layer">
+          <mxGeometry x="760" y="420" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-14" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p4-layer" source="p4-7" target="p4-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-15" value="worker trừ vé OK" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p4-layer" source="p4-8" target="p4-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-16" value="remaining &amp;lt; q" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p4-layer" source="p4-8" target="p4-9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-17" value="webhook thành công&lt;br&gt;+ ledger CHARGE" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p4-layer" source="p4-10" target="p4-11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-18" value="hết 10 phút&lt;br&gt;nhả vé" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p4-layer" source="p4-10" target="p4-12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-19" value="user huỷ&lt;br&gt;nhả vé" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p4-layer" source="p4-10" target="p4-13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-20" value="user huỷ&lt;br&gt;hoàn tiền + ledger REFUND&lt;br&gt;+ nhả vé" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p4-layer" source="p4-11" target="p4-13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-21" value="&lt;b&gt;Chuyển trạng thái an toàn khi đồng thời&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;span style='font-family:Consolas'&gt;UPDATE orders&lt;br&gt;&amp;nbsp;&amp;nbsp;SET status = 'CANCELLED', version = version + 1&lt;br&gt;&amp;nbsp;WHERE id = :id AND status = :expected AND version = :v;&lt;/span&gt;&lt;br&gt;&lt;br&gt;rowcount = 1 → request này thắng: nhả vé / hoàn tiền / ghi history trong cùng UoW ⑥&lt;br&gt;rowcount = 0 → đơn đã đổi trạng thái: trả 409 InvalidState, &lt;b&gt;không&lt;/b&gt; nhả vé" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#ffffff;strokeColor=#666666;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;" vertex="1" parent="p4-layer">
+          <mxGeometry x="40" y="540" width="880" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-22" value="&lt;b&gt;Request A&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p4-layer">
+          <mxGeometry x="1000" y="150" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-23" value="" style="endArrow=none;dashed=1;strokeColor=#999999;html=1;" edge="1" parent="p4-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1060" y="190" as="sourcePoint" />
+            <mxPoint x="1060" y="700" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p4-24" value="&lt;b&gt;Request B&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p4-layer">
+          <mxGeometry x="1160" y="150" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-25" value="" style="endArrow=none;dashed=1;strokeColor=#999999;html=1;" edge="1" parent="p4-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1220" y="190" as="sourcePoint" />
+            <mxPoint x="1220" y="700" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p4-26" value="&lt;b&gt;PostgreSQL&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="p4-layer">
+          <mxGeometry x="1340" y="150" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p4-27" value="" style="endArrow=none;dashed=1;strokeColor=#999999;html=1;" edge="1" parent="p4-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1400" y="190" as="sourcePoint" />
+            <mxPoint x="1400" y="700" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p4-28" value="UPDATE … status=PAID, v=3" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p4-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1060" y="240" as="sourcePoint" />
+            <mxPoint x="1400" y="240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p4-29" value="UPDATE … status=PAID, v=3 (chờ khoá dòng)" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p4-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1220" y="290" as="sourcePoint" />
+            <mxPoint x="1400" y="290" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p4-30" value="1 dòng → nhả vé, COMMIT" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;strokeColor=#666666;" edge="1" parent="p4-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1400" y="340" as="sourcePoint" />
+            <mxPoint x="1060" y="340" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p4-31" value="0 dòng (status đã đổi)" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;strokeColor=#666666;" edge="1" parent="p4-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1400" y="400" as="sourcePoint" />
+            <mxPoint x="1220" y="400" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p4-32" value="409 InvalidState" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;strokeColor=#666666;strokeColor=#b85450;" edge="1" parent="p4-layer">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1220" y="450" as="sourcePoint" />
+            <mxPoint x="1000" y="450" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="p4-33" value="Kết quả: tồn kho chỉ được cộng lại một lần, sửa lỗi NFR05." style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p4-layer">
+          <mxGeometry x="980" y="500" width="470" height="40" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="p5" name="5. UoW + Retry + Circuit Breaker ④⑥">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1700" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="p5-root" />
+        <mxCell id="p5-layer" parent="p5-root" />
+        <mxCell id="p5-1" value="&lt;b style='font-size:22px'&gt;④ Retry + Circuit Breaker và ⑥ Unit of Work&lt;/b&gt;&lt;br&gt;&lt;span style='color:#555'&gt;Phụ trách: Hiếu. Thử lại cả Unit of Work chứ không thử lại từng câu SQL.&lt;/span&gt;" style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=12;" vertex="1" parent="p5-layer">
+          <mxGeometry x="20" y="10" width="1200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-2" value="Vy" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="p5-layer">
+          <mxGeometry x="1240" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-3" value="Hiếu" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="p5-layer">
+          <mxGeometry x="1385" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-4" value="Thuý" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="p5-layer">
+          <mxGeometry x="1530" y="14" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-5" value="Giữ từ Phase 1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="p5-layer">
+          <mxGeometry x="1240" y="44" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-6" value="Bên ngoài" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="p5-layer">
+          <mxGeometry x="1385" y="44" width="135" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-7" value="&lt;b&gt;Use case&lt;/b&gt;&lt;br&gt;OrderProcessor&lt;br&gt;CancelOrderService&lt;br&gt;PaymentWebhookHandler" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="p5-layer">
+          <mxGeometry x="40" y="150" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-8" value="&lt;b&gt;④ RetryPolicy&lt;/b&gt;&lt;br&gt;3 lần · 100/200/400 ms&lt;br&gt;+ jitter" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="p5-layer">
+          <mxGeometry x="300" y="150" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-9" value="&lt;b&gt;④ CircuitBreaker&lt;/b&gt;&lt;br&gt;OPEN → fail fast" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="p5-layer">
+          <mxGeometry x="560" y="150" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-10" value="&lt;b&gt;⑥ UnitOfWork&lt;/b&gt;&lt;br&gt;BEGIN · COMMIT&lt;br&gt;ROLLBACK" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="p5-layer">
+          <mxGeometry x="820" y="150" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-11" value="&lt;b&gt;Repositories&lt;/b&gt;&lt;br&gt;dùng chung session" style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="p5-layer">
+          <mxGeometry x="1080" y="150" width="200" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-12" value="&lt;b&gt;PostgreSQL&lt;/b&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;size=12;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="p5-layer">
+          <mxGeometry x="1340" y="150" width="150" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-13" value="gọi" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p5-layer" source="p5-7" target="p5-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-14" value="lần thử" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p5-layer" source="p5-8" target="p5-9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-15" value="nếu CLOSED" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p5-layer" source="p5-9" target="p5-10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-16" value="uow.orders / uow.ticket_types" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p5-layer" source="p5-10" target="p5-11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-17" value="SQL" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p5-layer" source="p5-11" target="p5-12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-18" value="&lt;b&gt;Thử lại khi&lt;/b&gt;: OperationalError, mất kết nối, deadlock, serialization failure, pool timeout.&lt;br&gt;&lt;b&gt;Không thử lại&lt;/b&gt;: lỗi nghiệp vụ (SoldOut, InvalidState, Forbidden, NotFound).&lt;br&gt;Retry an toàn vì mỗi lệnh có Idempotency-Key ⑤ và mọi thay đổi trạng thái là UPDATE có điều kiện ②." style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#ffffff;strokeColor=#666666;align=left;spacingLeft=12;" vertex="1" parent="p5-layer">
+          <mxGeometry x="40" y="280" width="1450" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-19" value="CLOSED" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fontSize=13;fontStyle=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="p5-layer">
+          <mxGeometry x="80" y="470" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-20" value="OPEN" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fontSize=13;fontStyle=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="p5-layer">
+          <mxGeometry x="480" y="470" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-21" value="HALF_OPEN" style="rounded=1;whiteSpace=wrap;html=1;arcSize=40;fontSize=13;fontStyle=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="p5-layer">
+          <mxGeometry x="280" y="640" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-22" value="5 lỗi trong 10 s" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p5-layer" source="p5-19" target="p5-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-23" value="sau 15 s" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p5-layer" source="p5-20" target="p5-21">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-24" value="1 request thử thành công" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;" edge="1" parent="p5-layer" source="p5-21" target="p5-19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-25" value="thử thất bại" style="html=1;fontSize=11;endArrow=block;endFill=1;strokeWidth=1.5;labelBackgroundColor=#ffffff;dashed=1;" edge="1" parent="p5-layer" source="p5-21" target="p5-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-26" value="&lt;b&gt;Circuit Breaker&lt;/b&gt;&lt;br&gt;Khi OPEN, request bị từ chối ngay với 503 + Retry-After thay vì giữ luồng và kết nối 30 giây như Phase 1. Mỗi đích có breaker riêng: một cho PostgreSQL, một cho cổng thanh toán." style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=12;" vertex="1" parent="p5-layer">
+          <mxGeometry x="40" y="400" width="640" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p5-27" value="&lt;b&gt;⑥ Unit of Work trong service&lt;/b&gt;&lt;br&gt;&lt;br&gt;&lt;span style='font-family:Consolas'&gt;with uow:&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;if not uow.ticket_types.reserve(tt_id, q):&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;raise SoldOut()&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;order = uow.orders.add(PENDING_PAYMENT)&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;uow.idempotency.complete(key, order)&lt;br&gt;&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;uow.commit()&amp;nbsp;&amp;nbsp;# lỗi ở bất kỳ bước nào → rollback toàn bộ&lt;/span&gt;&lt;br&gt;&lt;br&gt;Tầng API không còn tự commit trong get_db(); service quyết định ranh giới transaction và cùng một UoW chạy được cả trong API lẫn Worker." style="rounded=1;whiteSpace=wrap;html=1;arcSize=6;fontSize=12;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;spacingLeft=12;spacingTop=8;" vertex="1" parent="p5-layer">
+          <mxGeometry x="760" y="400" width="730" height="300" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

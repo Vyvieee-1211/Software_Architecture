@@ -20,7 +20,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://concert:concert@db:5432/concert
       JWT_SECRET: change-me-in-production-at-least-32-bytes-long
-      PAYMENT_PROVIDER: mock
+      PAYMENT_PROVIDER: mock   # vnpay | momo: thêm VNPAY_* / MOMO_* và PUBLIC_BASE_URL công khai
       PAYMENT_WEBHOOK_SECRET: change-me-payment-webhook-secret
       TICKET_QR_SECRET: change-me-ticket-qr-secret
       PUBLIC_BASE_URL: http://localhost:8000

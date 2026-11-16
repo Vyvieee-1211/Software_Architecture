@@ -47,6 +47,12 @@ class PaymentGateway(Protocol):
         """
         ...
 
-    def refund(self, payment_id: str, amount: Decimal, reason: str) -> RefundResult:
-        """Ném PaymentGatewayError nếu cổng không phản hồi."""
+    def refund(self, payment_id: str, amount: Decimal, reason: str,
+               payment_raw: str = "") -> RefundResult:
+        """Hoàn `amount` cho giao dịch `payment_id`.
+
+        `payment_raw` là nguyên văn webhook đã báo thu tiền thành công (transactions.raw_log):
+        cổng thật (VNPay, MoMo) cần mã giao dịch phía họ ghi trong đó mới hoàn được.
+        Ném PaymentGatewayError nếu cổng từ chối hoặc không phản hồi.
+        """
         ...
