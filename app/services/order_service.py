@@ -50,6 +50,14 @@ def _return_stock(uow: UnitOfWork, order, ticket_status: str) -> None:
     uow.ticket_types.release(order.ticket_type_id, order.quantity)
 
 
+def check_sale_window(concert, now: datetime) -> None:
+    """Chỉ nhận đặt vé từ lúc mở bán đến trước giờ diễn."""
+    if now < concert.sale_open_time:
+        raise SaleNotOpen(concert.sale_open_time.isoformat())
+    if now >= concert.start_time:
+        raise SaleClosed(concert.start_time.isoformat())
+
+
 class OrderService:
     def __init__(self, uow_factory: Callable[[], UnitOfWork], clock=_utcnow, execute=None, *,
                  hold_minutes: float = 12, max_per_order: int = 10, max_held_per_user: int = 10):
@@ -83,62 +91,69 @@ class OrderService:
 
     def _place_order(self, user_id, ticket_type_id, quantity, idempotency_key):
         with self.uow_factory() as uow:
-            # Khóa dòng user: các lần đặt của CÙNG một người chạy tuần tự, nên giới hạn
-            # vé đang giữ không thể bị lách bằng nhiều request song song, và request
-            # retry cùng Idempotency-Key luôn thấy đơn của lần gửi trước.
-            if not uow.users.lock(user_id):
-                raise NotFound(f"user {user_id}")
+            order, created = self.place_in(uow, user_id, ticket_type_id, quantity, idempotency_key)
+            if created:  # trả lại đơn cũ thì không ghi gì, không cần commit
+                uow.commit()
+        return order, created
 
-            if idempotency_key is not None:
-                existing = uow.orders.get_by_idempotency_key(user_id, idempotency_key)
-                if existing is not None:
-                    return self._replay(existing, ticket_type_id, quantity), False
+    def place_in(self, uow: UnitOfWork, user_id: int, ticket_type_id: int, quantity: int,
+                 idempotency_key: str | None = None):
+        """Giữ chỗ trong transaction CỦA NGƯỜI GỌI (không commit). Trả về (order, created).
 
-            ticket_type = uow.ticket_types.get_by_id(ticket_type_id)
-            if ticket_type is None:
-                raise NotFound(f"ticket_type {ticket_type_id}")
+        Worker hàng đợi dùng hàm này để tạo đơn và đánh dấu yêu cầu đã xong trong cùng
+        một transaction. Ném lỗi nghiệp vụ thì người gọi phải rollback.
+        """
+        # Khóa dòng user: các lần đặt của CÙNG một người chạy tuần tự, nên giới hạn
+        # vé đang giữ không thể bị lách bằng nhiều request song song, và request
+        # retry cùng Idempotency-Key luôn thấy đơn của lần gửi trước.
+        if not uow.users.lock(user_id):
+            raise NotFound(f"user {user_id}")
 
-            concert = uow.concerts.get_by_id(ticket_type.concert_id)
-            now = self.clock()
-            if now < concert.sale_open_time:
-                raise SaleNotOpen(concert.sale_open_time.isoformat())
-            if now >= concert.start_time:
-                raise SaleClosed(concert.start_time.isoformat())
+        if idempotency_key is not None:
+            existing = uow.orders.get_by_idempotency_key(user_id, idempotency_key)
+            if existing is not None:
+                return self._replay(existing, ticket_type_id, quantity), False
 
-            held = uow.orders.held_quantity(user_id, now)
-            if held + quantity > self.max_held_per_user:
-                raise HoldLimitExceeded(
-                    f"holding {held} tickets; at most {self.max_held_per_user} may be held at once"
-                )
+        ticket_type = uow.ticket_types.get_by_id(ticket_type_id)
+        if ticket_type is None:
+            raise NotFound(f"ticket_type {ticket_type_id}")
 
-            fields = dict(
-                user_id=user_id, ticket_type_id=ticket_type_id, quantity=quantity,
-                unit_price=ticket_type.price, total_amount=ticket_type.price * quantity,
-                expires_at=now + self.hold_duration,
+        concert = uow.concerts.get_by_id(ticket_type.concert_id)
+        now = self.clock()
+        check_sale_window(concert, now)
+
+        held = uow.orders.held_quantity(user_id, now)
+        if held + quantity > self.max_held_per_user:
+            raise HoldLimitExceeded(
+                f"holding {held} tickets; at most {self.max_held_per_user} may be held at once"
             )
-            if idempotency_key is None:
-                order = None
-            else:
-                # Giành key TRƯỚC khi trừ vé: nếu request trùng key khác đã thắng thì
-                # dừng ở đây, kho vé không bị đụng tới.
-                order = uow.orders.create_idempotent(idempotency_key, **fields)
-                if order is None:
-                    existing = uow.orders.get_by_idempotency_key(user_id, idempotency_key)
-                    return self._replay(existing, ticket_type_id, quantity), False
 
-            # Trừ tạm bộ đếm bằng một UPDATE có điều kiện: đây là chốt chống bán vượt.
-            # Hết vé → ném lỗi → UoW rollback khi thoát, đơn vừa chèn (nếu có) cũng bị hủy.
-            if not uow.ticket_types.reserve(ticket_type_id, quantity):
-                raise SoldOut(f"ticket_type {ticket_type_id}")
-
+        fields = dict(
+            user_id=user_id, ticket_type_id=ticket_type_id, quantity=quantity,
+            unit_price=ticket_type.price, total_amount=ticket_type.price * quantity,
+            expires_at=now + self.hold_duration,
+        )
+        if idempotency_key is None:
+            order = None
+        else:
+            # Giành key TRƯỚC khi trừ vé: nếu request trùng key khác đã thắng thì
+            # dừng ở đây, kho vé không bị đụng tới.
+            order = uow.orders.create_idempotent(idempotency_key, **fields)
             if order is None:
-                order = uow.orders.create(**fields)
-            if uow.tickets.hold(ticket_type_id, order.id, quantity) is None:
-                raise SoldOut(f"ticket_type {ticket_type_id}")
+                existing = uow.orders.get_by_idempotency_key(user_id, idempotency_key)
+                return self._replay(existing, ticket_type_id, quantity), False
 
-            result = OrderData.from_order(order)
-            uow.commit()
-        return result, True
+        # Trừ tạm bộ đếm bằng một UPDATE có điều kiện: đây là chốt chống bán vượt.
+        # Hết vé → ném lỗi → UoW rollback khi thoát, đơn vừa chèn (nếu có) cũng bị hủy.
+        if not uow.ticket_types.reserve(ticket_type_id, quantity):
+            raise SoldOut(f"ticket_type {ticket_type_id}")
+
+        if order is None:
+            order = uow.orders.create(**fields)
+        if uow.tickets.hold(ticket_type_id, order.id, quantity) is None:
+            raise SoldOut(f"ticket_type {ticket_type_id}")
+
+        return OrderData.from_order(order), True
 
     @staticmethod
     def _replay(order, ticket_type_id: int, quantity: int) -> OrderData:

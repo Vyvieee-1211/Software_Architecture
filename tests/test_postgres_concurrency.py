@@ -14,10 +14,11 @@ from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import sessionmaker
 
 from app.integrations.mock_payment import MockPaymentGateway
-from app.repositories.models import Base, Concert, Order, Ticket, TicketType, User
+from app.repositories.models import Base, Concert, Order, OrderRequest, Ticket, TicketType, User
 from app.repositories.resilience import CircuitBreaker, DatabasePolicy
 from app.repositories.unit_of_work import SqlAlchemyUnitOfWork
 from app.services.errors import HoldLimitExceeded, InvalidState, SoldOut
+from app.services.order_request_service import OrderRequestService
 from app.services.order_service import OrderService
 from app.services.payment_service import PaymentService
 from app.services.ticket_codes import TicketCodes
@@ -213,4 +214,45 @@ def test_idempotent_hold_reserves_stock_and_replays(sessions):
 
     outcomes = run_parallel(10, lambda i: svc.place_order(1, 1, 2, idempotency_key="key-123456789"))
     assert all(kind == "ok" and o.id == first.id and not created for kind, (o, created) in outcomes), outcomes
+    assert inventory(sessions)[:2] == (18, 2)
+
+
+# --- Hàng đợi đặt vé: Queue-Based Load Leveling + Competing Consumers ------------
+
+def make_queue_service(sessions):
+    uow = lambda: SqlAlchemyUnitOfWork(sessions)  # noqa: E731
+    return OrderRequestService(uow, OrderService(uow, execute=policy().run), execute=policy().run)
+
+
+def test_competing_workers_process_each_request_once(sessions):
+    """100 người gửi yêu cầu cùng lúc, 8 worker tranh nhau xử lý: đúng 20 đơn, không bán vượt,
+    mỗi yêu cầu có đúng một kết quả."""
+    svc = make_queue_service(sessions)
+    submitted = run_parallel(100, lambda i: svc.submit(user_id=i + 1, ticket_type_id=1, quantity=1)[0].id)
+    assert all(kind == "ok" for kind, _ in submitted), [o for kind, o in submitted if kind == "err"][:3]
+
+    processed = run_parallel(8, lambda i: svc.drain())
+    assert all(kind == "ok" for kind, _ in processed), processed
+    assert sum(count for _, count in processed) == 100  # không yêu cầu nào bị xử lý hai lần
+
+    with sessions() as db:
+        rows = db.execute(select(OrderRequest.id, OrderRequest.status, OrderRequest.error)
+                          .order_by(OrderRequest.id)).all()
+        statuses = [status for _, status, _ in rows]
+        assert statuses.count("succeeded") == 20 and statuses.count("failed") == 80
+        assert {error for _, status, error in rows if status == "failed"} == {"SoldOut"}
+        assert db.scalar(select(func.count()).select_from(Order)) == 20
+    remaining, active, total, by_status = inventory(sessions)
+    assert remaining == 0 and active == 20 == total and by_status == {"held": 20}
+
+
+def test_same_key_burst_then_competing_workers_create_one_order(sessions):
+    svc = make_queue_service(sessions)
+    submitted = run_parallel(20, lambda i: svc.submit(1, 1, 2, idempotency_key="retry-key-1")[0].id)
+    assert {request_id for _, request_id in submitted} == {submitted[0][1]}
+
+    run_parallel(4, lambda i: svc.drain())
+    with sessions() as db:
+        assert db.scalar(select(func.count()).select_from(OrderRequest)) == 1
+        assert db.scalar(select(func.count()).select_from(Order)) == 1
     assert inventory(sessions)[:2] == (18, 2)

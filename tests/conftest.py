@@ -6,6 +6,8 @@ import os
 os.environ["DATABASE_URL"] = "sqlite://"
 # Không chạy luồng quét nền trong test: test tự gọi expire_holds() khi cần.
 os.environ["HOLD_SWEEP_INTERVAL_SECONDS"] = "0"
+# Không chạy worker hàng đợi đặt vé: test tự gọi drain() để xử lý một cách tất định.
+os.environ["ORDER_WORKERS"] = "0"
 
 from app.repositories.models import TicketType  # noqa: E402
 from app.repositories.ticket_repo import TicketRepository  # noqa: E402

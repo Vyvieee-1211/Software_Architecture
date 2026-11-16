@@ -7,8 +7,9 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config
-from app.api.deps import get_order_service
+from app.api.deps import get_order_request_service, get_order_service
 from app.api.routers import auth, concerts, orders, concert_management, mock_gateway, payments
+from app.order_worker import OrderRequestWorker
 from app.repositories.database import init_db
 from app.services import errors
 from app.services.infrastructure_errors import DatabaseUnavailable
@@ -18,14 +19,18 @@ from app.sweeper import HoldSweeper
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    sweeper = None
+    background = []
     if config.HOLD_SWEEP_INTERVAL_SECONDS > 0:
-        sweeper = HoldSweeper(lambda: get_order_service().expire_holds(),
-                              config.HOLD_SWEEP_INTERVAL_SECONDS)
-        sweeper.start()
+        background.append(HoldSweeper(lambda: get_order_service().expire_holds(),
+                                      config.HOLD_SWEEP_INTERVAL_SECONDS))
+    if config.ORDER_WORKERS > 0:
+        background.append(OrderRequestWorker(lambda: get_order_request_service().process_next(),
+                                             config.ORDER_WORKERS, config.ORDER_WORKER_POLL_SECONDS))
+    for task in background:
+        task.start()
     yield
-    if sweeper is not None:
-        sweeper.stop()
+    for task in background:
+        task.stop()
 
 
 app = FastAPI(

@@ -122,6 +122,22 @@ class OrderResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class OrderRequestResponse(BaseModel):
+    """Trạng thái một yêu cầu đặt vé đang xếp hàng (Asynchronous Request-Reply)."""
+    id: int
+    status: str = Field(description="pending | succeeded | failed")
+    ticket_type_id: int
+    quantity: int
+    order_id: int | None = Field(description="Đơn đã tạo khi status = succeeded.")
+    error: str | None = Field(description="Tên lỗi nghiệp vụ khi status = failed, vd. SoldOut.")
+    detail: str | None
+    created_at: datetime
+    completed_at: datetime | None
+    order: OrderResponse | None = Field(default=None, description="Đơn đã tạo (chỉ có ở GET trạng thái).")
+
+    model_config = {"from_attributes": True}
+
+
 class TicketResponse(BaseModel):
     id: int
     ticket_type_id: int

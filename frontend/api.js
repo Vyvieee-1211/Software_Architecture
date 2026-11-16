@@ -130,6 +130,31 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
   }
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Asynchronous Request-Reply: hỏi trạng thái yêu cầu đến khi có kết quả, giãn dần khoảng chờ.
+// Thành công → trả về đơn; thất bại → ném ApiError mang mã lỗi nghiệp vụ (vd. SoldOut).
+// Hết thời gian chờ → ném ApiError mã 'OrderPending': yêu cầu vẫn trong hàng đợi, KHÔNG phải lỗi.
+async function waitForOrder(orderRequest, { timeoutMs = 60000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let current = orderRequest;
+  let delay = 500;
+  while (current.status === 'pending') {
+    if (Date.now() >= deadline) {
+      throw new ApiError('Yêu cầu đặt vé vẫn đang được xử lý. Vui lòng xem lại trong "Đơn vé của tôi".', 202, 'OrderPending');
+    }
+    await sleep(delay);
+    delay = Math.min(delay * 1.5, 3000);
+    try {
+      current = await api.orderRequest(current.id);
+    } catch (error) {
+      if (error.code !== 'NetworkError') throw error; // mất mạng khi hỏi trạng thái: hỏi lại
+    }
+  }
+  if (current.status === 'succeeded') return current.order;
+  throw new ApiError(messages[current.error] || 'Không thể giữ chỗ lúc này. Vui lòng thử lại.', 409, current.error || '');
+}
+
 export const api = {
   concerts: () => request('/concerts'),
   ticketTypes: (id) => request(`/concerts/${id}/ticket-types`),
@@ -143,8 +168,11 @@ export const api = {
   updateTicket: (id, ticketId, body) => request(`/concerts/${id}/ticket-types/${ticketId}`, { method: 'PUT', body, auth: true }),
   deleteTicket: (id, ticketId) => request(`/concerts/${id}/ticket-types/${ticketId}`, { method: 'DELETE', auth: true }),
   orders: () => request('/orders/me', { auth: true }),
+  // Gửi yêu cầu giữ chỗ: server xếp hàng và trả 202 kèm trạng thái `pending`.
   createOrder: (body, idempotencyKey) => request('/orders', {
     method: 'POST', body, auth: true, headers: { 'Idempotency-Key': idempotencyKey },
   }),
+  orderRequest: (id) => request(`/orders/requests/${id}`, { auth: true }),
+  waitForOrder,
   cancelOrder: (id) => request(`/orders/${id}`, { method: 'DELETE', auth: true }),
 };

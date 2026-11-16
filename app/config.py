@@ -36,6 +36,15 @@ MAX_TICKETS_PER_ORDER = _number("MAX_TICKETS_PER_ORDER", 10, int, 1)
 MAX_HELD_TICKETS_PER_USER = _number("MAX_HELD_TICKETS_PER_USER", 10, int, 1)
 # Chu kỳ quét đơn giữ chỗ quá hạn; 0 = tắt (vd. khi chạy test hoặc có worker riêng).
 HOLD_SWEEP_INTERVAL_SECONDS = _number("HOLD_SWEEP_INTERVAL_SECONDS", 5, float, 0)
+# --- Hàng đợi yêu cầu đặt vé (Asynchronous Request-Reply + Queue-Based Load Leveling) ---
+# Số luồng worker xử lý hàng đợi trong mỗi tiến trình API; 0 = không chạy (test tự gọi drain()).
+ORDER_WORKERS = _number("ORDER_WORKERS", 2, int, 0)
+# Worker ngủ tối đa chừng này giây khi hàng đợi rỗng (yêu cầu mới trong cùng tiến trình đánh thức ngay).
+ORDER_WORKER_POLL_SECONDS = _number("ORDER_WORKER_POLL_SECONDS", 0.5, float, 0.01)
+# Một yêu cầu làm worker lỗi bất ngờ chừng này lần thì bị đánh dấu failed (poison message).
+ORDER_REQUEST_MAX_ATTEMPTS = _number("ORDER_REQUEST_MAX_ATTEMPTS", 3, int, 1)
+# Giá trị header Retry-After gợi ý client chờ trước khi hỏi lại trạng thái yêu cầu.
+ORDER_STATUS_RETRY_AFTER_SECONDS = _number("ORDER_STATUS_RETRY_AFTER_SECONDS", 1, int, 1)
 # Đơn đã thanh toán chỉ được hủy (hoàn toàn bộ tiền) trước giờ diễn ít nhất chừng này giờ.
 REFUND_CUTOFF_HOURS = _number("REFUND_CUTOFF_HOURS", 24, float, 0)
 

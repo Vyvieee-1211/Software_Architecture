@@ -69,7 +69,7 @@ class TicketType(Base):
 class Order(Base):
     """Đơn giữ chỗ: gom các vé khách đang chọn, tổng tiền và hạn giữ chỗ.
 
-    Trạng thái: held → paid | expired | cancelled | failed.
+    Trạng thái: held → paid | expired | cancelled | failed; paid → refunded.
     """
 
     __tablename__ = "orders"
@@ -97,6 +97,39 @@ class Order(Base):
 
     user: Mapped["User"] = relationship(back_populates="orders")
     ticket_type: Mapped["TicketType"] = relationship()
+
+
+class OrderRequest(Base):
+    """Yêu cầu đặt vé đang xếp hàng — vừa là hàng đợi, vừa là tài nguyên trạng thái mà
+    client hỏi lại (`GET /orders/requests/{id}`).
+
+    Trạng thái: pending → succeeded (có order_id) | failed (có error).
+    Worker lấy việc bằng `SELECT ... FOR UPDATE SKIP LOCKED` và đánh dấu xong trong CÙNG
+    transaction tạo đơn, nên mỗi yêu cầu sinh tối đa một đơn.
+    """
+
+    __tablename__ = "order_requests"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_order_requests_quantity_positive"),
+        # Gửi lại cùng Idempotency-Key trả về đúng yêu cầu cũ; NULL không bị ràng buộc.
+        Index("uq_order_requests_user_key", "user_id", "idempotency_key", unique=True),
+        Index("ix_order_requests_status_id", "status", "id"),  # worker lấy việc theo FIFO
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # Không đặt khóa ngoại: admin xóa hạng vé khi còn yêu cầu chờ thì worker báo NotFound.
+    ticket_type_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"))
+    error: Mapped[str | None] = mapped_column(String(50))
+    detail: Mapped[str | None] = mapped_column(String(255))
+    # Số lần worker lỗi bất ngờ khi xử lý (không tính lỗi nghiệp vụ hay lỗi DB tạm thời).
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Ticket(Base):

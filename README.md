@@ -345,7 +345,8 @@ Khi ứng dụng đang chạy, truy cập:
 |`GET`|`/concerts`|Không yêu cầu|Lấy danh sách concert; thêm `?on_sale=true` để chỉ lấy concert đã mở bán.|
 |`GET`|`/concerts/{id}`|Không yêu cầu|Xem chi tiết concert; trả 404 nếu không tồn tại.|
 |`GET`|`/concerts/{id}/ticket-types`|Không yêu cầu|Lấy các loại vé của một concert.|
-|`POST`|`/orders`|Bearer Token|Giữ chỗ: tạo đơn `held`, trừ tạm kho, giữ vé 12 phút. 400 `SaleNotOpen`/`SaleClosed`, 409 `SoldOut`/`HoldLimitExceeded`.|
+|`POST`|`/orders`|Bearer Token|Gửi yêu cầu giữ chỗ (bất đồng bộ): `202` + `Location: /orders/requests/{id}` + `Retry-After`. Từ chối ngay: 400 `SaleNotOpen`/`SaleClosed`, 404, 409 `SoldOut` (đã hết vé)/`IdempotencyKeyReused`.|
+|`GET`|`/orders/requests/{id}`|Bearer Token|Trạng thái yêu cầu giữ chỗ: `pending` → `succeeded` (kèm đơn `held`, giữ 12 phút) hoặc `failed` (kèm `error`, vd. `SoldOut`, `HoldLimitExceeded`).|
 |`GET`|`/orders/me`|Bearer Token|Xem đơn hàng của người dùng hiện tại.|
 |`GET`|`/orders/{id}`|Bearer Token|Xem một đơn.|
 |`DELETE`|`/orders/{id}`|Bearer Token|Hủy đơn: đơn `held` → `cancelled` (trả vé về kho); đơn `paid` → `refunded` (thu hồi vé, hoàn toàn bộ tiền; 409 `RefundWindowClosed` nếu cách giờ diễn dưới 24h).|
@@ -358,18 +359,40 @@ Khi ứng dụng đang chạy, truy cập:
 
 Các endpoint `/orders` được bảo vệ bằng dependency xác thực dùng chung. Chi tiết request schema, response schema và mã trạng thái HTTP có thể xem trong Swagger UI tại `/docs`.
 
-### Chống tạo đơn trùng khi retry (Idempotency-Key)
+### Đặt vé bất đồng bộ và chống tạo đơn trùng (Azure Architecture Patterns)
 
-Khi `POST /orders` bị timeout, client không biết đơn đã được tạo hay chưa; gửi lại có thể tạo đơn thứ hai và trừ vé hai lần. Client nên gửi header `Idempotency-Key` (khuyến nghị UUID, 8–64 ký tự `A-Z a-z 0-9 _ - : .`) — **một khoá cho một lần đặt vé** và dùng lại đúng khoá đó khi retry:
+**Vấn đề:** lúc mở bán, mọi request đặt vé tranh nhau cùng một dòng tồn kho nên chậm và dễ timeout. Khi timeout, client không biết đơn đã được tạo hay chưa; gửi lại có thể tạo đơn thứ hai và trừ vé hai lần.
+
+**Cách giải:** áp dụng bốn pattern trong [Azure Architecture Center](https://learn.microsoft.com/en-us/azure/architecture/patterns/):
+
+|Pattern|Áp dụng trong dự án|
+|-|-|
+|[Asynchronous Request-Reply](https://learn.microsoft.com/en-us/azure/architecture/patterns/async-request-reply)|`POST /orders` chỉ kiểm tra nhanh rồi xếp hàng, trả ngay `202 Accepted` + `Location: /orders/requests/{id}` + `Retry-After`. Client hỏi trạng thái đến khi `succeeded`/`failed`. Request HTTP không còn chờ phần việc tranh chấp nên không còn "timeout mà không biết kết quả".|
+|[Queue-Based Load Leveling](https://learn.microsoft.com/en-us/azure/architecture/patterns/queue-based-load-leveling)|Yêu cầu được lưu vào bảng `order_requests` (hàng đợi bền vững ngay trong PostgreSQL, không thêm hạ tầng). Chỉ `ORDER_WORKERS` worker mỗi tiến trình chạm vào dòng tồn kho, nên tải dồn lúc mở bán được san phẳng.|
+|[Competing Consumers](https://learn.microsoft.com/en-us/azure/architecture/patterns/competing-consumers)|Nhiều worker (luồng/tiến trình) lấy việc bằng `SELECT … FOR UPDATE SKIP LOCKED`, theo thứ tự gửi. Tạo đơn và đánh dấu yêu cầu `succeeded` nằm **cùng một transaction**: worker chết giữa chừng thì rollback, yêu cầu vẫn `pending` cho worker khác. Đơn còn gắn khóa `request:{id}` nên một yêu cầu không thể sinh hai đơn.|
+|[Retry](https://learn.microsoft.com/en-us/azure/architecture/patterns/retry)|Client gửi lại cùng `Idempotency-Key` khi lỗi mạng (backoff tăng dần), hỏi trạng thái theo `Retry-After`. Phía server, lỗi DB tạm thời được chạy lại từ đầu; yêu cầu làm worker lỗi bất ngờ `ORDER_REQUEST_MAX_ATTEMPTS` lần bị đánh dấu `failed/ProcessingFailed` (poison message) để không chặn hàng đợi.|
+
+```text
+Client ──POST /orders (Idempotency-Key)──► API: kiểm tra nhanh, INSERT order_requests ──► 202 + Location
+   │                                                             │ (đánh thức worker)
+   │                                                             ▼
+   │                                   Worker 1..N: claim (SKIP LOCKED) → giữ chỗ → succeeded/failed
+   └──GET /orders/requests/{id} (theo Retry-After)──► pending … → succeeded (kèm đơn `held`) | failed (kèm lỗi)
+```
+
+Client nên gửi header `Idempotency-Key` (khuyến nghị UUID, 8–64 ký tự `A-Z a-z 0-9 _ - : .`): **một khoá cho một lần đặt vé**, dùng lại đúng khoá đó khi retry.
 
 |Tình huống|Kết quả|
 |-|-|
-|Lần đầu với khoá mới|`201`, tạo đơn và trừ vé.|
-|Gửi lại cùng khoá, cùng nội dung|`200` + header `Idempotent-Replayed: true`, trả lại đơn cũ, **không** trừ vé thêm.|
+|Lần đầu với khoá mới|`202`, yêu cầu `pending` được xếp hàng.|
+|Gửi lại cùng khoá, cùng nội dung|`202` + `Idempotent-Replayed: true`, trả lại **đúng yêu cầu cũ** (đang chờ, đã thành công hoặc đã thất bại); không xếp thêm, không trừ vé thêm.|
 |Cùng khoá nhưng khác `ticket_type_id`/`quantity`|`409 IdempotencyKeyReused`.|
-|Lần trước lỗi nghiệp vụ (vd. `SoldOut`)|Không lưu gì, có thể retry với cùng khoá.|
+|Bị từ chối ngay khi gửi (hết vé, ngoài giờ bán)|Không lưu gì, có thể gửi lại với cùng khoá.|
+|Worker kết luận thất bại (vd. `SoldOut`, `HoldLimitExceeded`)|Kết quả được ghi vào yêu cầu; gửi lại cùng khoá nhận lại kết quả đó. Muốn đặt lần mới thì dùng khoá mới.|
 
-Khoá được tách theo từng người dùng và được bảo đảm bằng unique index `(user_id, idempotency_key)` trong DB, nên vẫn đúng khi nhiều request trùng khoá đến đồng thời. Request không gửi khoá giữ nguyên hành vi cũ. Frontend tự sinh khoá, tự retry tối đa 2 lần khi lỗi mạng và giữ khoá cho lần bấm đặt lại.
+Khoá được tách theo từng người dùng và được bảo đảm bằng unique index `(user_id, idempotency_key)`, nên vẫn đúng khi nhiều request trùng khoá đến đồng thời. Frontend tự sinh khoá, retry tối đa 2 lần khi lỗi mạng, hỏi trạng thái tối đa 60 giây và giữ khoá cho lần bấm đặt lại.
+
+Cấu hình: `ORDER_WORKERS` (mặc định 2 luồng mỗi tiến trình; 0 = tắt), `ORDER_WORKER_POLL_SECONDS` (0.5), `ORDER_REQUEST_MAX_ATTEMPTS` (3), `ORDER_STATUS_RETRY_AFTER_SECONDS` (1). Bảng `order_requests` là bảng mới: DB tạo từ trước cần tạo lại (`docker compose down -v; docker compose up -d db` rồi seed).
 
 ## 9\. Kiểm thử và kết quả
 

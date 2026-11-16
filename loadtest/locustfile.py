@@ -35,6 +35,7 @@ import csv
 import logging
 import os
 import random
+import time
 import uuid
 from collections import Counter
 from pathlib import Path
@@ -59,6 +60,16 @@ SALE_OPEN = Event()        # rào chắn cho kịch bản flash
 
 def count(key, n=1):
     COUNTERS[key] += n
+
+
+class Result:
+    """Kết quả cuối của một lần giữ chỗ bất đồng bộ, cùng dạng với response (status_code, json())."""
+
+    def __init__(self, status_code, body):
+        self.status_code, self._body = status_code, body
+
+    def json(self):
+        return self._body
 
 
 # --- Phần dùng chung -----------------------------------------------------------
@@ -97,24 +108,59 @@ class BaseUser(HttpUser):
 
     # --- các bước nghiệp vụ, trả về dữ liệu hoặc None ---
 
-    def hold(self, ticket_type_id=None, quantity=None, key=None, name="/orders [POST]"):
-        body = {"ticket_type_id": ticket_type_id or self.target_type(),
-                "quantity": quantity or random.randint(1, 4)}
-        headers = {**self.headers, "Idempotency-Key": key or uuid.uuid4().hex}
+    def submit(self, ticket_type_id, quantity, key, name="/orders [POST]"):
+        """Gửi yêu cầu giữ chỗ (202 + Location). Trả về response, hoặc None nếu lỗi hạ tầng."""
+        body = {"ticket_type_id": ticket_type_id, "quantity": quantity}
+        headers = {**self.headers, "Idempotency-Key": key}
         with self.client.post("/orders", json=body, headers=headers, name=name, catch_response=True) as r:
-            if r.status_code == 201:
-                count("held")
-                self.held.append(r.json()["id"])
+            if r.status_code == 202:
+                count("replayed" if r.headers.get("Idempotent-Replayed") == "true" else "queued")
                 return r
-            if r.status_code == 200 and r.headers.get("Idempotent-Replayed") == "true":
-                count("replayed")
-                return r
-            if r.status_code in BUSINESS_REJECTS:
+            if r.status_code in BUSINESS_REJECTS:  # từ chối ngay khi gửi: hết vé, ngoài giờ bán
                 count(r.json().get("error", str(r.status_code)))
                 r.success()
                 return r
             r.failure(f"unexpected {r.status_code}: {r.text[:120]}")
+            return None
+
+    def wait_request(self, location, timeout=60):
+        """Hỏi trạng thái theo Retry-After đến khi yêu cầu xong. Trả về JSON cuối, hoặc None."""
+        started = time.monotonic()
+        delay = 0.5
+        while time.monotonic() - started < timeout:
+            gevent.sleep(delay)
+            with self.client.get(location, headers=self.headers, name="/orders/requests/{id} [GET]",
+                                 catch_response=True) as r:
+                if r.status_code != 200:
+                    r.failure(f"unexpected {r.status_code}: {r.text[:120]}")
+                    return None
+                body = r.json()
+                if body["status"] != "pending":
+                    # Thời gian từ lúc gửi đến khi có kết quả: chỉ số chính của luồng bất đồng bộ.
+                    events.request.fire(request_type="QUEUE", name="order request end-to-end",
+                                        response_time=(time.monotonic() - started) * 1000,
+                                        response_length=0, exception=None, context={})
+                    return body
+                delay = float(r.headers.get("Retry-After", delay))
+        count("request_timeout")
+        return None
+
+    def hold(self, ticket_type_id=None, quantity=None, key=None, name="/orders [POST]"):
+        """Giữ chỗ đến khi có kết quả. Trả về `Result` 201 + đơn khi thành công, 409 + lỗi khi
+        yêu cầu thất bại, response gốc khi bị từ chối ngay, hoặc None khi lỗi hạ tầng."""
+        r = self.submit(ticket_type_id or self.target_type(), quantity or random.randint(1, 4),
+                        key or uuid.uuid4().hex, name)
+        if r is None or r.status_code != 202:
             return r
+        final = self.wait_request(r.headers["Location"])
+        if final is None:
+            return None
+        if final["status"] == "succeeded":
+            count("held")
+            self.held.append(final["order_id"])
+            return Result(201, final["order"])
+        count(final["error"])
+        return Result(409, {"error": final["error"], "detail": final["detail"]})
 
     def start_payment(self, order_id):
         with self.client.post(f"/orders/{order_id}/pay", headers=self.headers,
@@ -258,30 +304,30 @@ class AbandonUser(BaseUser):
 # --- S5 Retry storm ---------------------------------------------------------------
 
 class RetryStormUser(BaseUser):
-    """3 request giữ chỗ song song cùng Idempotency-Key: mong đợi đúng 1 lần 201, còn lại
-    200 + Idempotent-Replayed với cùng id đơn."""
+    """3 request giữ chỗ song song cùng Idempotency-Key: mong đợi cả 3 nhận 202 với CÙNG một
+    yêu cầu (đúng 1 lần mới, 2 lần Idempotent-Replayed), và cuối cùng có tối đa một đơn."""
     abstract = True
 
     @task
     def retry_burst(self):
         key = uuid.uuid4().hex
         ticket_type, quantity = self.target_type(), random.randint(1, 4)
-        jobs = [gevent.spawn(self.hold, ticket_type, quantity, key, "/orders [POST retry x3]") for _ in range(3)]
+        jobs = [gevent.spawn(self.submit, ticket_type, quantity, key, "/orders [POST retry x3]") for _ in range(3)]
         gevent.joinall(jobs)
         results = [j.value for j in jobs if j.value is not None]
-        created = [r for r in results if r.status_code == 201]
-        replayed = [r for r in results if r.status_code == 200]
-        rejected = [r for r in results if r.status_code in BUSINESS_REJECTS]
-        if rejected and not created:
-            return  # hết vé: cả 3 cùng bị từ chối là đúng
-        ids = {r.json()["id"] for r in created + replayed}
-        if len(created) == 1 and len(ids) == 1 and len(created) + len(replayed) == len(results):
+        accepted = [r for r in results if r.status_code == 202]
+        if not accepted:
+            return  # hết vé: cả 3 cùng bị từ chối ngay là đúng
+        fresh = [r for r in accepted if r.headers.get("Idempotent-Replayed") != "true"]
+        ids = {r.json()["id"] for r in accepted}
+        if len(fresh) == 1 and len(ids) == 1 and len(accepted) == len(results):
             count("verify_ok")
         else:
             count("verify_fail")
             log.error("retry x3: %s", [(r.status_code, r.text[:80]) for r in results])
-        if created:
-            self.cancel(self.held.pop())  # trả kho để lượt sau còn vé
+        final = self.wait_request(accepted[0].headers["Location"])
+        if final is not None and final["status"] == "succeeded":
+            self.cancel(final["order_id"])  # trả kho để lượt sau còn vé
 
 
 # --- S6 Contention ----------------------------------------------------------------
