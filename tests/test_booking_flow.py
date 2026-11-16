@@ -9,7 +9,7 @@ from app.repositories import database
 from app.services.errors import PaymentGatewayError
 from app.repositories.models import Concert, Order, Ticket, TicketType, Transaction
 from tests.conftest import add_ticket_type
-from tests.test_api import auth_header, client  # noqa: F401  (fixture dùng chung)
+from tests.test_api import auth_header, client, place_order  # noqa: F401  (fixture dùng chung)
 
 
 def now():
@@ -21,7 +21,7 @@ def remaining(client, index=0):
 
 
 def hold(client, headers, quantity=2, ticket_type_id=1):
-    r = client.post("/orders", json={"ticket_type_id": ticket_type_id, "quantity": quantity}, headers=headers)
+    r = place_order(client, json={"ticket_type_id": ticket_type_id, "quantity": quantity}, headers=headers)
     assert r.status_code == 201, r.text
     return r.json()
 
@@ -195,7 +195,7 @@ def test_hold_limit_per_user(client):
         db.commit()
     h = auth_header(client)
     hold(client, h, quantity=8, ticket_type_id=2)
-    r = client.post("/orders", json={"ticket_type_id": 2, "quantity": 3}, headers=h)
+    r = place_order(client, json={"ticket_type_id": 2, "quantity": 3}, headers=h)
     assert r.status_code == 409 and r.json()["error"] == "HoldLimitExceeded"
     hold(client, h, quantity=2, ticket_type_id=2)  # vừa đủ 10
 
@@ -220,7 +220,7 @@ def test_cannot_book_after_concert_started(client):
     with database.SessionLocal() as db:
         db.get(Concert, 1).start_time = now() - timedelta(minutes=1)
         db.commit()
-    r = client.post("/orders", json={"ticket_type_id": 1, "quantity": 1}, headers=h)
+    r = place_order(client, json={"ticket_type_id": 1, "quantity": 1}, headers=h)
     assert r.status_code == 400 and r.json()["error"] == "SaleClosed"
     assert remaining(client) == 3
 

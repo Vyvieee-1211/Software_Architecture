@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Concert ticketing backend (FastAPI + SQLAlchemy 2.0 + PostgreSQL) with a static vanilla-JS frontend. It is a university Software Architecture course project (INT3105). The booking flow is hold-then-pay: an order is a 12-minute hold, settled by a payment-gateway webhook into issued QR tickets or returned stock. `docs/phase2-architecture.drawio` sketches further Phase 2 ideas (Redis queue, order worker) that are not implemented.
+Concert ticketing backend (FastAPI + SQLAlchemy 2.0 + PostgreSQL) with a static vanilla-JS frontend. It is a university Software Architecture course project (INT3105). The booking flow is hold-then-pay: an order is a 12-minute hold, settled by a payment-gateway webhook into issued QR tickets or returned stock. Holds are placed asynchronously: `POST /orders` enqueues an `order_requests` row (202 + `Location`), background workers turn it into a held order. `docs/phase2-architecture.drawio` sketches a Redis-based variant; the implemented queue lives in PostgreSQL.
 
 Code comments, docstrings, README, and all user-facing UI text are in Vietnamese. Keep new comments and UI strings in Vietnamese.
 
@@ -53,6 +53,13 @@ Two patterns coexist:
 
 `get_current_user` opens and closes its own short session before the use case starts, so a request never holds two connections.
 
+### Order request queue (Asynchronous Request-Reply + Queue-Based Load Leveling + Competing Consumers)
+
+- `OrderRequestService.submit` does only cheap checks (ticket type exists, sale window, unlocked `remaining >= quantity`), inserts into `order_requests` (`ON CONFLICT DO NOTHING RETURNING id` on `(user_id, idempotency_key)`), and returns `(request, created)`. Same key → the same request is replayed whatever its status; a different payload → `IdempotencyKeyReused`.
+- `process_next` claims the oldest `pending` row with `FOR UPDATE SKIP LOCKED`, calls `OrderService.place_in(uow, ..., key="request:{id}")` and `complete()` in the same transaction. Business errors roll back and are recorded with `fail()` in a second transaction; unexpected errors go through `record_crash()` and fail the request after `ORDER_REQUEST_MAX_ATTEMPTS`. Both are conditional on `status = 'pending'`.
+- `OrderRequestWorker` (`app/order_worker.py`) runs `ORDER_WORKERS` threads per process, woken by `order_worker.wakeup` on submit and polling otherwise. Tests set `ORDER_WORKERS=0` and call `deps.get_order_request_service().drain()`; `tests/test_api.py::place_order` wraps POST → drain → GET status into a final `Outcome` for business-flow tests.
+- `OrderService.place_order` still exists (synchronous, used by service and PostgreSQL tests); `place_in` is the commit-free core both paths share.
+
 ### Order state machine and inventory
 
 `orders.status`: `held → paid | expired | cancelled | failed`, and `paid → refunded` (customer cancels a paid order, full refund, only until `REFUND_CUTOFF_HOURS` before the concert). Every transition is a single conditional `UPDATE ... WHERE status = '<from>' [AND expires_at > now]` in `OrderRepository`; callers proceed (issue tickets, return stock) only when `rowcount == 1`. Keep it that way — read-then-check-then-write is exactly the bug this replaced. `DELETE /orders/{id}` dispatches on the order's status: `held` goes to `OrderService.cancel_order`, `paid` to `PaymentService.refund_order`.
@@ -81,12 +88,12 @@ All datetimes are naive UTC. `OrderService`/`PaymentService` take an injectable 
 
 - `tests/conftest.py` sets `DATABASE_URL=sqlite://` and `HOLD_SWEEP_INTERVAL_SECONDS=0` before `app` is imported, and provides `add_ticket_type()` which also generates the per-seat `tickets` rows (plain `TicketType(...)` inserts leave `hold()` with nothing to assign).
 - `tests/test_order_service.py`: `OrderService` against `FakeUnitOfWork` and a settable clock, no DB.
-- `tests/test_api.py`, `test_idempotency.py`, `test_booking_flow.py`: `TestClient` on in-memory SQLite (`StaticPool`, one connection). The fixture monkeypatches `SessionLocal` in `app.repositories.database` and `app.api.deps`; any new module importing `SessionLocal` by name needs the same patch. `FOR UPDATE` is a no-op on SQLite, so these cannot prove concurrency safety.
-- `tests/test_postgres_concurrency.py`: multi-threaded tests on a real PostgreSQL given by `TEST_DATABASE_URL` (oversell burst, duplicate cancel, hold-limit bypass, pay-vs-expire race, duplicate webhooks). Skipped otherwise.
+- `tests/test_api.py`, `test_idempotency.py`, `test_booking_flow.py`, `test_order_queue.py`: `TestClient` on in-memory SQLite (`StaticPool`, one connection). The fixture monkeypatches `SessionLocal` in `app.repositories.database` and `app.api.deps`; any new module importing `SessionLocal` by name needs the same patch. `FOR UPDATE` is a no-op on SQLite, so these cannot prove concurrency safety.
+- `tests/test_postgres_concurrency.py`: multi-threaded tests on a real PostgreSQL given by `TEST_DATABASE_URL` (oversell burst, duplicate cancel, hold-limit bypass, pay-vs-expire race, duplicate webhooks, competing queue workers). Skipped otherwise.
 
 ### Frontend
 
-`frontend/` is a hash-routed SPA in plain ES modules, served by `app/main.py` (static mount at `/`, after the API routers) or by `node frontend/dev-server.cjs` via `python -m scripts.dev`. It still models the pre-hold flow (`confirmed` status, no payment step) and needs updating to `held`/`paid`, `POST /orders/{id}/pay` and the tickets page.
+`frontend/` is a hash-routed SPA in plain ES modules, served by `app/main.py` (static mount at `/`, after the API routers) or by `node frontend/dev-server.cjs` via `python -m scripts.dev`. Booking polls the order request (`api.waitForOrder`), but the orders page still models the pre-hold flow (`confirmed` status, no payment step) and needs updating to `held`/`paid`, `POST /orders/{id}/pay` and the tickets page.
 
 ## Repository state to be aware of
 

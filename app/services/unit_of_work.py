@@ -22,6 +22,7 @@ class TicketTypeRecord(Protocol):
     id: int
     concert_id: int
     price: Decimal
+    remaining: int
 
 
 class ConcertRecord(Protocol):
@@ -46,6 +47,21 @@ class TransactionRecord(Protocol):
     status: str
     amount: Decimal
     raw_log: str
+
+
+class OrderRequestRecord(Protocol):
+    id: int
+    user_id: int
+    ticket_type_id: int
+    quantity: int
+    idempotency_key: str | None
+    status: str
+    order_id: int | None
+    error: str | None
+    detail: str | None
+    attempts: int
+    created_at: datetime
+    completed_at: datetime | None
 
 
 class Users(Protocol):
@@ -92,6 +108,17 @@ class Transactions(Protocol):
     def succeeded_payment(self, order_id: int) -> TransactionRecord | None: ...
 
 
+class OrderRequests(Protocol):
+    def create(self, *, user_id: int, ticket_type_id: int, quantity: int,
+               idempotency_key: str | None) -> OrderRequestRecord | None: ...
+    def get_by_id(self, request_id: int) -> OrderRequestRecord | None: ...
+    def get_by_key(self, user_id: int, idempotency_key: str) -> OrderRequestRecord | None: ...
+    def claim_next(self) -> OrderRequestRecord | None: ...
+    def complete(self, request_id: int, order_id: int, now: datetime) -> bool: ...
+    def fail(self, request_id: int, error: str, detail: str, now: datetime) -> bool: ...
+    def record_crash(self, request_id: int, detail: str, max_attempts: int, now: datetime) -> bool: ...
+
+
 class UnitOfWork(Protocol):
     users: Users
     orders: Orders
@@ -99,6 +126,7 @@ class UnitOfWork(Protocol):
     tickets: Tickets
     concerts: Concerts
     transactions: Transactions
+    order_requests: OrderRequests
 
     def __enter__(self) -> Self: ...
 

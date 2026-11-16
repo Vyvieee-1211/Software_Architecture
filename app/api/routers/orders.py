@@ -1,11 +1,16 @@
+from dataclasses import asdict
 from typing import Annotated
 
 import segno
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 
-from app.api.deps import get_current_user, get_order_service, get_payment_service
-from app.api.schemas import CreateOrderRequest, OrderResponse, PaymentResponse, TicketResponse
+from app import config
+from app.api.deps import get_current_user, get_order_request_service, get_order_service, get_payment_service
+from app.api.schemas import (
+    CreateOrderRequest, OrderRequestResponse, OrderResponse, PaymentResponse, TicketResponse,
+)
 from app.repositories.models import User
+from app.services.order_request_service import OrderRequestData, OrderRequestService
 from app.services.order_service import OrderService
 from app.services.payment_service import PaymentService
 
@@ -25,22 +30,36 @@ IdempotencyKey = Annotated[
         pattern=r"^[A-Za-z0-9_\-:.]+$",
         description=(
             "Khoá duy nhất cho MỘT lần đặt vé (khuyến nghị UUID). Gửi lại cùng khoá khi "
-            "retry sau timeout/lỗi mạng: server trả lại đơn đã tạo (200, header "
-            "Idempotent-Replayed: true) thay vì tạo đơn mới."
+            "retry sau timeout/lỗi mạng: server trả lại ĐÚNG yêu cầu đã xếp hàng (header "
+            "Idempotent-Replayed: true) thay vì xếp thêm yêu cầu mới."
         ),
     ),
 ]
 
 
+def request_status_url(request_id: int) -> str:
+    return f"/orders/requests/{request_id}"
+
+
+def _request_response(response: Response, request: OrderRequestData, order=None) -> OrderRequestResponse:
+    response.headers["Location"] = request_status_url(request.id)
+    if request.status == "pending":
+        # Gợi ý client chờ bao lâu trước khi hỏi lại trạng thái.
+        response.headers["Retry-After"] = str(config.ORDER_STATUS_RETRY_AFTER_SECONDS)
+    return OrderRequestResponse(**asdict(request),
+                                order=None if order is None else OrderResponse.model_validate(order))
+
+
 @router.post(
     "",
-    response_model=OrderResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Giữ chỗ: tạo đơn `held`, trừ tạm kho và giữ vé đến `expires_at`",
+    response_model=OrderRequestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Gửi yêu cầu giữ chỗ (bất đồng bộ): xếp hàng rồi hỏi trạng thái ở header `Location`",
     responses={
-        200: {"model": OrderResponse, "description": "Retry cùng Idempotency-Key: trả lại đơn đã tạo."},
+        202: {"description": "Đã nhận yêu cầu. Hỏi `GET /orders/requests/{id}` (header Location) "
+                             "sau `Retry-After` giây cho đến khi status là succeeded/failed."},
         400: {"description": "Chưa mở bán (SaleNotOpen) hoặc concert đã diễn ra (SaleClosed)."},
-        409: {"description": "Hết vé, vượt giới hạn vé đang giữ, hoặc Idempotency-Key đã dùng cho yêu cầu khác."},
+        409: {"description": "Đã hết vé, hoặc Idempotency-Key đã dùng cho yêu cầu khác."},
     },
 )
 def create_order(
@@ -48,13 +67,27 @@ def create_order(
     response: Response,
     idempotency_key: IdempotencyKey = None,
     user: User = Depends(get_current_user),
-    svc: OrderService = Depends(get_order_service),
+    svc: OrderRequestService = Depends(get_order_request_service),
 ):
-    order, created = svc.place_order(user.id, body.ticket_type_id, body.quantity, idempotency_key)
+    request, created = svc.submit(user.id, body.ticket_type_id, body.quantity, idempotency_key)
     if not created:
-        response.status_code = status.HTTP_200_OK
         response.headers["Idempotent-Replayed"] = "true"
-    return order
+    return _request_response(response, request)
+
+
+@router.get(
+    "/requests/{request_id}",
+    response_model=OrderRequestResponse,
+    summary="Trạng thái yêu cầu giữ chỗ: pending → succeeded (kèm đơn) | failed (kèm lỗi)",
+)
+def get_order_request(
+    request_id: int,
+    response: Response,
+    user: User = Depends(get_current_user),
+    svc: OrderRequestService = Depends(get_order_request_service),
+):
+    request, order = svc.get(user.id, request_id)
+    return _request_response(response, request, order)
 
 
 @router.get("/me", response_model=list[OrderResponse])

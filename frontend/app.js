@@ -225,7 +225,7 @@ async function renderDetail(version, id) {
   document.title = `${eventTitle(concert)} — HIT THE VIBE`;
   main.innerHTML = `<section class="detail-art-banner"><div class="container"><a class="back-link" href="#/concerts">← Tất cả concert</a><div class="detail-banner-title"><p class="eyebrow">HIT THE VIBE / LIVE CONCERT</p><h1>${escape(eventTitle(concert))}</h1><span>${escape(eventArtist(concert))}</span></div><span class="detail-banner-stamp" aria-hidden="true">LIVE<br>EXPERIENCE ↗</span></div></section>
     <div class="container detail-page"><div class="detail-grid"><div class="event-information"><section class="detail-heading"><p class="eyebrow">THÔNG TIN SỰ KIỆN</p>${saleBadge(concert)}<h2>${escape(eventTitle(concert))}</h2><div class="event-info-grid"><div><span>Nghệ sĩ</span><strong>${escape(eventArtist(concert))}</strong></div><div><span>Thời gian</span><strong>${escape(dateText(concert.start_time))}</strong></div><div><span>Địa điểm</span><strong>${escape(eventVenue(concert))}</strong></div><div><span>Thời gian mở bán</span><strong>${escape(dateText(concert.sale_open_time))}</strong></div></div></section><section class="event-about"><h2>Về sự kiện</h2><p>Thông tin giới thiệu chi tiết sẽ được cập nhật. Bạn có thể xem nghệ sĩ, thời gian và địa điểm diễn ở trên, chọn hạng vé và xác nhận đơn vé tại đây.</p>${poster(concert, 'detail-poster')}<p class="artwork-caption">HIT THE VIBE / Minh họa không khí đêm nhạc.</p></section><section class="booking-guide"><p class="eyebrow">TRƯỚC KHI ĐẶT VÉ</p><h2>Sẵn sàng cho đêm nhạc.</h2><ol><li>Chọn một hạng vé và số lượng phù hợp.</li><li>Kiểm tra tổng tiền trước khi xác nhận.</li><li>Quản lý vé đã đặt trong mục “Vé của tôi”.</li></ol></section></div>
-      <aside class="booking-panel" aria-labelledby="booking-title"><div class="booking-panel-header"><span class="eyebrow">YOUR TICKET TO THE MOMENT</span><h2 id="booking-title">Chọn vé của bạn</h2><p>Mỗi đơn tối đa 10 vé · Một hạng vé mỗi đơn</p></div><div id="sale-notice">${!isOpen(concert) ? `<div class="notice notice-info">Vé mở bán lúc ${escape(dateText(concert.sale_open_time))} (giờ Việt Nam).</div>` : ''}</div><div class="ticket-list" role="radiogroup" aria-label="Chọn hạng vé">${tickets.length ? tickets.map((ticket) => `<div class="ticket-option ${selected?.id === ticket.id ? 'is-selected' : ''}"><label class="ticket-option-label"><input type="radio" name="ticket" value="${ticket.id}" ${selected?.id === ticket.id ? 'checked' : ''} ${ticket.remaining <= 0 ? 'disabled' : ''}><span class="ticket-copy"><strong>${escape(ticket.name)}</strong><span class="ticket-stock">${ticket.remaining > 0 ? `Còn ${ticket.remaining.toLocaleString('vi-VN')} vé` : 'Đã hết vé'}</span></span></label><div class="ticket-option-bottom"><span class="ticket-price">${money(ticket.price)}</span>${rowQuantity(ticket, selected?.id, quantity)}</div></div>`).join('') : empty('Chưa có hạng vé', 'Thông tin vé sẽ được cập nhật sau.')}</div><div class="booking-summary"><div class="summary-row"><span>Hạng vé</span><strong id="summary-ticket"></strong></div><div class="summary-row"><span>Đơn giá</span><strong id="summary-price"></strong></div><div class="selected-quantity"><label for="quantity">Số lượng đã chọn</label><div class="quantity-control"><button type="button" data-action="decrease" aria-label="Giảm số lượng">−</button><input id="quantity" type="number" min="1" max="10" step="1" value="${quantity}" inputmode="numeric" aria-describedby="quantity-error"><button type="button" data-action="increase" aria-label="Tăng số lượng">+</button></div></div><p class="form-error" id="quantity-error" hidden></p><div class="summary-total"><span>Tổng tiền</span><strong id="summary-total"></strong></div><button id="book-button" class="button button-primary button-full" data-action="book" type="button"></button><p class="booking-footnote">Đơn vé được xác nhận ngay khi đặt thành công.</p></div></aside>
+      <aside class="booking-panel" aria-labelledby="booking-title"><div class="booking-panel-header"><span class="eyebrow">YOUR TICKET TO THE MOMENT</span><h2 id="booking-title">Chọn vé của bạn</h2><p>Mỗi đơn tối đa 10 vé · Một hạng vé mỗi đơn</p></div><div id="sale-notice">${!isOpen(concert) ? `<div class="notice notice-info">Vé mở bán lúc ${escape(dateText(concert.sale_open_time))} (giờ Việt Nam).</div>` : ''}</div><div class="ticket-list" role="radiogroup" aria-label="Chọn hạng vé">${tickets.length ? tickets.map((ticket) => `<div class="ticket-option ${selected?.id === ticket.id ? 'is-selected' : ''}"><label class="ticket-option-label"><input type="radio" name="ticket" value="${ticket.id}" ${selected?.id === ticket.id ? 'checked' : ''} ${ticket.remaining <= 0 ? 'disabled' : ''}><span class="ticket-copy"><strong>${escape(ticket.name)}</strong><span class="ticket-stock">${ticket.remaining > 0 ? `Còn ${ticket.remaining.toLocaleString('vi-VN')} vé` : 'Đã hết vé'}</span></span></label><div class="ticket-option-bottom"><span class="ticket-price">${money(ticket.price)}</span>${rowQuantity(ticket, selected?.id, quantity)}</div></div>`).join('') : empty('Chưa có hạng vé', 'Thông tin vé sẽ được cập nhật sau.')}</div><div class="booking-summary"><div class="summary-row"><span>Hạng vé</span><strong id="summary-ticket"></strong></div><div class="summary-row"><span>Đơn giá</span><strong id="summary-price"></strong></div><div class="selected-quantity"><label for="quantity">Số lượng đã chọn</label><div class="quantity-control"><button type="button" data-action="decrease" aria-label="Giảm số lượng">−</button><input id="quantity" type="number" min="1" max="10" step="1" value="${quantity}" inputmode="numeric" aria-describedby="quantity-error"><button type="button" data-action="increase" aria-label="Tăng số lượng">+</button></div></div><p class="form-error" id="quantity-error" hidden></p><div class="summary-total"><span>Tổng tiền</span><strong id="summary-total"></strong></div><button id="book-button" class="button button-primary button-full" data-action="book" type="button"></button><p class="booking-footnote">Yêu cầu được xếp hàng và xử lý theo thứ tự; vé được giữ cho bạn trong thời gian chờ thanh toán.</p></div></aside>
     </div></div>`;
   syncBooking();
 }
@@ -388,34 +388,42 @@ function bookTicket() {
   const { concert } = detail;
   const ticket = detail.tickets.find((item) => item.id === detail.selectedId);
   const quantity = Number(document.querySelector('#quantity').value);
-  openConfirmation({ title: 'Xác nhận đặt vé', label: 'Xác nhận đặt vé', content: `<p>${escape(concert.name)}</p><div class="summary-row"><span>${escape(ticket.name)} × ${quantity}</span><strong>${money(Number(ticket.price) * quantity)}</strong></div><p class="field-hint">Đơn sẽ được xác nhận ngay khi đặt thành công.</p>`, action: async () => {
+  openConfirmation({ title: 'Xác nhận đặt vé', label: 'Xác nhận đặt vé', content: `<p>${escape(concert.name)}</p><div class="summary-row"><span>${escape(ticket.name)} × ${quantity}</span><strong>${money(Number(ticket.price) * quantity)}</strong></div><p class="field-hint">Yêu cầu sẽ được xếp hàng; vui lòng chờ trong giây lát để hệ thống giữ chỗ.</p>`, action: async () => {
     const user = getSession()?.email;
     if (pendingBooking?.user !== user || pendingBooking.ticketId !== ticket.id || pendingBooking.quantity !== quantity) {
       pendingBooking = { user, ticketId: ticket.id, quantity, key: newIdempotencyKey() };
     }
     const { key } = pendingBooking;
     try {
-      let order;
+      let orderRequest;
       for (let attempt = 0; ; attempt += 1) {
         try {
-          order = await api.createOrder({ ticket_type_id: ticket.id, quantity }, key);
+          orderRequest = await api.createOrder({ ticket_type_id: ticket.id, quantity }, key);
           break;
         } catch (error) {
-          // Retry an toàn vì dùng lại cùng khoá: server trả lại đơn cũ nếu lần trước đã thành công.
+          // Retry an toàn vì dùng lại cùng khoá: server trả lại đúng yêu cầu đã xếp hàng.
           if (error.code !== 'NetworkError' || attempt >= BOOKING_RETRIES) throw error;
           await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
         }
       }
+      // Yêu cầu đã vào hàng đợi; chờ worker giữ chỗ xong (hỏi trạng thái định kỳ).
+      const order = await api.waitForOrder(orderRequest);
       if (pendingBooking?.key === key) pendingBooking = null;
       drafts.delete(concert.id);
       dialog.close();
       navigate('/my-orders');
-      showNotice(`Đặt vé thành công! Đơn #${order.id} đã được xác nhận.`, 'success');
+      showNotice(`Giữ chỗ thành công! Đơn #${order.id} đang chờ thanh toán.`, 'success');
     } catch (error) {
-      // Lỗi mạng: GIỮ pendingBooking để lần bấm đặt lại dùng cùng khoá. Lỗi khác là kết quả
-      // chắc chắn từ server (không có đơn nào được tạo) nên lần sau dùng khoá mới.
-      if (error.code !== 'NetworkError' && pendingBooking?.key === key) pendingBooking = null;
-      if (error.code === 'SoldOut' || error.code === 'SaleNotOpen') {
+      // Lỗi mạng hoặc yêu cầu còn đang chờ xử lý: GIỮ pendingBooking để lần bấm đặt lại dùng
+      // cùng khoá (server trả lại đúng yêu cầu cũ). Lỗi khác là kết quả chắc chắn nên lần sau
+      // dùng khoá mới.
+      const unresolved = error.code === 'NetworkError' || error.code === 'OrderPending';
+      if (!unresolved && pendingBooking?.key === key) pendingBooking = null;
+      if (error.code === 'OrderPending') {
+        dialog.close();
+        navigate('/my-orders');
+        showNotice(error.message, 'info');
+      } else if (error.code === 'SoldOut' || error.code === 'SaleNotOpen') {
         dialog.close();
         await renderRoute();
         showNotice(error.message, 'error');

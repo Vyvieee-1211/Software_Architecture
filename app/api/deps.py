@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app import config
 from app.config import ADMIN_EMAILS, JWT_EXPIRE_MINUTES, JWT_SECRET
 from app.integrations import build_payment_gateway
+from app.order_worker import wakeup as order_queue_wakeup
 from app.repositories.concert_repo import ConcertRepository
 from app.repositories.database import SessionLocal
 from app.repositories.models import User
@@ -22,6 +23,7 @@ from app.repositories.user_repo import UserRepository
 from app.services.auth_service import AuthService
 from app.services.concert_service import ConcertService
 from app.services.errors import InvalidToken
+from app.services.order_request_service import OrderRequestService
 from app.services.order_service import OrderService
 from app.services.payment_gateway import PaymentGateway
 from app.services.payment_service import PaymentService
@@ -60,6 +62,14 @@ def get_order_service() -> OrderService:
         hold_minutes=config.HOLD_MINUTES,
         max_per_order=config.MAX_TICKETS_PER_ORDER,
         max_held_per_user=config.MAX_HELD_TICKETS_PER_USER,
+    )
+
+
+def get_order_request_service() -> OrderRequestService:
+    return OrderRequestService(
+        _uow, get_order_service(), execute=database_policy.run,
+        max_attempts=config.ORDER_REQUEST_MAX_ATTEMPTS,
+        on_submitted=order_queue_wakeup.set,
     )
 
 

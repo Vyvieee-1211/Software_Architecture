@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api import deps
 from app.config import JWT_SECRET
-from app.main import app
+from app.main import ERROR_STATUS, app
 from app.repositories import database
 from app.repositories.models import Base, Concert, TicketType
 from app.repositories.ticket_repo import TicketRepository
@@ -39,6 +39,43 @@ def client(monkeypatch):
             yield c
     finally:
         engine.dispose()
+
+
+_ERROR_STATUS = {cls.__name__: code for cls, code in ERROR_STATUS.items()}
+
+
+class Outcome:
+    """Kết quả cuối của một lần đặt vé, có dạng như response cũ (201 + đơn, hoặc mã lỗi)."""
+
+    def __init__(self, status_code, body, request=None):
+        self.status_code, self._body, self.request = status_code, body, request
+
+    def json(self):
+        return self._body
+
+
+def drain_order_queue() -> int:
+    """Cho worker xử lý hết hàng đợi ngay trong luồng test (ORDER_WORKERS=0)."""
+    return deps.get_order_request_service().drain()
+
+
+def place_order(client, json, headers):
+    """Đặt vé rồi chờ kết quả như một client của Asynchronous Request-Reply:
+    POST /orders (202) → worker xử lý hàng đợi → GET Location.
+
+    Trả về Outcome(201, đơn) khi thành công, Outcome(<mã lỗi>, {"error","detail"}) khi
+    yêu cầu thất bại; lỗi bị từ chối ngay ở bước gửi (400/401/404/409/422) trả nguyên response.
+    """
+    submitted = client.post("/orders", json=json, headers=headers)
+    if submitted.status_code != 202:
+        return submitted
+    drain_order_queue()
+    request = client.get(submitted.headers["Location"], headers=headers).json()
+    if request["status"] == "succeeded":
+        return Outcome(201, request["order"], request)
+    assert request["status"] == "failed", request
+    return Outcome(_ERROR_STATUS.get(request["error"], 400),
+                   {"error": request["error"], "detail": request["detail"]}, request)
 
 
 def auth_header(client, email="a@example.com"):
@@ -138,7 +175,7 @@ def test_management_preserves_orders_and_inventory(client, monkeypatch):
     concert_id = client.post("/concerts", json=management_body(), headers=admin).json()["id"]
     ticket = client.get(f"/concerts/{concert_id}/ticket-types").json()[0]
     ticket_path = f"/concerts/{concert_id}/ticket-types/{ticket['id']}"
-    order = client.post("/orders", headers=buyer, json={"ticket_type_id": ticket["id"], "quantity": 3})
+    order = place_order(client, headers=buyer, json={"ticket_type_id": ticket["id"], "quantity": 3})
     assert order.status_code == 201
     fields = {"name": "VIP", "price": "1250000", "total_quantity": 30}
     changed = client.put(ticket_path, headers=admin, json=fields)
@@ -185,8 +222,7 @@ def test_management_validates_creation_without_partial_data(client, monkeypatch,
 def test_invalid_tokens_are_rejected(client, token_case, method, path, body):
     """AUTH-04: token hết hạn, giả mạo hoặc bị sửa đều bị chặn với 401."""
     valid_header = auth_header(client)
-    created = client.post(
-        "/orders", json={"ticket_type_id": 1, "quantity": 1}, headers=valid_header,
+    created = place_order(client, json={"ticket_type_id": 1, "quantity": 1}, headers=valid_header,
     )
     assert created.status_code == 201
     existing_order = created.json()
@@ -340,13 +376,14 @@ def test_public_ticket_types(client):
 def test_orders_require_auth(client):
     assert client.get("/orders/me").status_code == 401
     assert client.post("/orders", json={"ticket_type_id": 1, "quantity": 1}).status_code == 401
+    assert client.get("/orders/requests/1").status_code == 401
     assert client.delete("/orders/1").status_code == 401
 
 
 def test_order_lifecycle(client):
     h = auth_header(client)
 
-    r = client.post("/orders", json={"ticket_type_id": 1, "quantity": 2}, headers=h)
+    r = place_order(client, json={"ticket_type_id": 1, "quantity": 2}, headers=h)
     assert r.status_code == 201
     order = r.json()
     assert {"id", "user_id", "ticket_type_id", "quantity", "status", "created_at"} <= order.keys()
@@ -359,7 +396,7 @@ def test_order_lifecycle(client):
     order_id = order["id"]
     assert client.get("/concerts/1/ticket-types").json()[0]["remaining"] == 1
 
-    r = client.post("/orders", json={"ticket_type_id": 1, "quantity": 2}, headers=h)
+    r = place_order(client, json={"ticket_type_id": 1, "quantity": 2}, headers=h)
     assert r.status_code == 409 and r.json()["error"] == "SoldOut"
     assert client.get("/concerts/1/ticket-types").json()[0]["remaining"] == 1
 
@@ -387,8 +424,7 @@ def test_create_order_before_sale_returns_bad_request(client):
         db.get(Concert, 1).sale_open_time = sale_open_time
         db.commit()
 
-    response = client.post(
-        "/orders", json={"ticket_type_id": 1, "quantity": 1}, headers=headers,
+    response = place_order(client, json={"ticket_type_id": 1, "quantity": 1}, headers=headers,
     )
     assert response.status_code == 400
     assert response.json() == {"error": "SaleNotOpen", "detail": sale_open_time.isoformat()}
@@ -398,8 +434,7 @@ def test_create_order_before_sale_returns_bad_request(client):
 
 def test_create_order_unknown_ticket_type_returns_not_found(client):
     headers = auth_header(client)
-    response = client.post(
-        "/orders", json={"ticket_type_id": 9999, "quantity": 1}, headers=headers,
+    response = place_order(client, json={"ticket_type_id": 9999, "quantity": 1}, headers=headers,
     )
     assert response.status_code == 404
     assert response.json() == {"error": "NotFound", "detail": "ticket_type 9999"}
@@ -417,8 +452,7 @@ def test_create_order_valid_quantity_boundaries(client, quantity):
         TicketRepository(db).generate(1, 17)
         db.commit()
 
-    response = client.post(
-        "/orders", json={"ticket_type_id": 1, "quantity": quantity}, headers=headers,
+    response = place_order(client, json={"ticket_type_id": 1, "quantity": quantity}, headers=headers,
     )
     assert response.status_code == 201
     order = response.json()
@@ -431,8 +465,7 @@ def test_create_order_valid_quantity_boundaries(client, quantity):
 @pytest.mark.parametrize("quantity", [0, -1, 11])
 def test_create_order_invalid_quantity_returns_validation_error(client, quantity):
     headers = auth_header(client)
-    response = client.post(
-        "/orders", json={"ticket_type_id": 1, "quantity": quantity}, headers=headers,
+    response = place_order(client, json={"ticket_type_id": 1, "quantity": quantity}, headers=headers,
     )
     assert response.status_code == 422
     assert any(error["loc"] == ["body", "quantity"] for error in response.json()["detail"])
@@ -444,8 +477,7 @@ def test_list_orders_returns_only_current_users_orders(client):
     headers = [auth_header(client, "owner@example.com"), auth_header(client, "other@example.com")]
     orders = []
     for header in headers:
-        response = client.post(
-            "/orders", json={"ticket_type_id": 1, "quantity": 1}, headers=header,
+        response = place_order(client, json={"ticket_type_id": 1, "quantity": 1}, headers=header,
         )
         assert response.status_code == 201
         order = response.json()
@@ -463,7 +495,7 @@ def test_list_orders_returns_only_current_users_orders(client):
 def test_cannot_cancel_other_users_order(client):
     h1 = auth_header(client, "b@example.com")
     h2 = auth_header(client, "c@example.com")
-    created = client.post("/orders", json={"ticket_type_id": 1, "quantity": 1}, headers=h1)
+    created = place_order(client, json={"ticket_type_id": 1, "quantity": 1}, headers=h1)
     assert created.status_code == 201
     order = created.json()
 
@@ -477,7 +509,7 @@ def test_cannot_cancel_other_users_order(client):
 
 def test_cancel_unknown_order_returns_not_found(client):
     headers = auth_header(client)
-    created = client.post("/orders", json={"ticket_type_id": 1, "quantity": 1}, headers=headers)
+    created = place_order(client, json={"ticket_type_id": 1, "quantity": 1}, headers=headers)
     assert created.status_code == 201
     order = created.json()
 
