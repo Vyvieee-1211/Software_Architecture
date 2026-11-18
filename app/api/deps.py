@@ -13,12 +13,10 @@ from app import config
 from app.config import ADMIN_EMAILS, JWT_EXPIRE_MINUTES, JWT_SECRET
 from app.integrations import build_payment_gateway
 from app.order_worker import wakeup as order_queue_wakeup
-from app.repositories.concert_repo import ConcertRepository
 from app.repositories.database import SessionLocal
 from app.repositories.models import User
 from app.repositories.unit_of_work import SqlAlchemyUnitOfWork
 from app.repositories.resilience import database_policy
-from app.repositories.ticket_type_repo import TicketTypeRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import AuthService
 from app.services.concert_service import ConcertService
@@ -31,7 +29,7 @@ from app.services.ticket_codes import TicketCodes
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Session cho tài khoản/tra cứu; nghiệp vụ đơn hàng dùng UoW riêng."""
+    """Session cho tài khoản và quản lý concert."""
     # Commit/cleanup must complete before sending the response.
     # A yielded endpoint cannot be replayed here, so use protection only.
     with database_policy.protect():
@@ -48,12 +46,12 @@ def get_auth_service(db: Session = Depends(get_db, scope="function")) -> AuthSer
     return AuthService(UserRepository(db), JWT_SECRET, JWT_EXPIRE_MINUTES)
 
 
-def get_concert_service(db: Session = Depends(get_db, scope="function")) -> ConcertService:
-    return ConcertService(ConcertRepository(db), TicketTypeRepository(db))
-
-
 def _uow() -> SqlAlchemyUnitOfWork:
     return SqlAlchemyUnitOfWork(SessionLocal)
+
+
+def get_concert_service() -> ConcertService:
+    return ConcertService(_uow, protect=database_policy.protect)
 
 
 def get_order_service() -> OrderService:

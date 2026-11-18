@@ -43,7 +43,7 @@ def main() -> int:
 
     try:
         processes.append(subprocess.Popen(
-            [python, "-m", "uvicorn", "app.main:app", "--reload"], **options
+            [python, "-m", "uvicorn", "app.main:app", "--workers", "1", "--reload"], **options
         ))
         processes.append(subprocess.Popen(
             [node, "frontend/dev-server.cjs"], **options

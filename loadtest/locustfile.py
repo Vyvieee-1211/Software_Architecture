@@ -1,61 +1,68 @@
-"""Kịch bản đo tải Locust cho luồng giữ chỗ → thanh toán (Phase 2), viết theo mô tả
-trong `kaggle_baseline_fixed.ipynb` (mục 2: S0–S10) và chỉ dùng hợp đồng HTTP công khai.
+"""S0–S10 theo mục 2 notebook, dùng API giữ chỗ bất đồng bộ hiện tại.
 
-Chọn kịch bản bằng biến môi trường SCENARIO (mặc định `funnel`):
-
-    smoke      S0  luồng đầy đủ, ít user, kiểm tra API chạy được
-    browse     S1  chỉ đọc: /concerts, /concerts/{id}, /concerts/{id}/ticket-types
-    flash      S2  mở bán: mọi user chờ đủ quân số rồi cùng lúc giữ chỗ MỘT hạng vé
-    funnel     S3  phễu mua: xem → giữ → thanh toán (90% thành công) → xem vé; 20% bỏ đơn
-    abandon    S4  giữ chỗ rồi bỏ, để đo sweeper trả kho (đặt HOLD_MINUTES nhỏ ở API)
-    retry      S5  mỗi lần giữ chỗ bắn 3 request cùng Idempotency-Key song song
-    contention S6  10 lệnh hủy song song trên cùng đơn (held và paid), pay-vs-expire
-    replay     S7  webhook gửi lặp 5 lần cho cùng giao dịch
-    (S8 soak = funnel chạy 30 phút; S9 scalability = lặp flash/funnel với --workers/pool
-     khác nhau; S10 chịu lỗi = funnel + `docker compose stop db` giữa chừng)
-
-Biến môi trường khác:
-    CONCERT_ID             concert dùng để đọc/giữ chỗ (mặc định 1)
-    TICKET_TYPE_ID         hạng vé cho flash/contention/replay (mặc định: hạng đầu của concert)
-    LOADTEST_DATABASE_URL  nếu đặt (postgresql://...), cuối lượt chạy kiểm tra bất biến kho
-                           và ghi loadtest/inventory_check_<scenario>.csv
-
-Chạy một tiến trình (tới ~1.000 user):
-    locust -f loadtest/locustfile.py --host http://localhost:8000 --headless -u 200 -r 20 -t 2m --csv kaggle_runs/phase2_s3
-
-Chạy phân tán cho 3.000 user (S1/S2): một master + 4 worker trong 4 terminal
-    locust -f loadtest/locustfile.py --master --headless -u 3000 -r 200 -t 3m --expect-workers 4 --csv kaggle_runs/phase2_s2
-    locust -f loadtest/locustfile.py --worker            (x4)
-
-API phải chạy với PAYMENT_PROVIDER=mock. Lỗi nghiệp vụ (409 SoldOut/HoldLimitExceeded/
-InvalidState, 400 SaleClosed) được tính là THÀNH CÔNG về hạ tầng; mọi mã khác là lỗi.
-Các kiểm tra "đúng 1 thắng" ghi vào bộ đếm `verify_*` in ra lúc dừng.
+Chạy: python -m loadtest.run S0 --start-api --prepare
+Chọn bằng SCENARIO=S0...S10 hoặc tên workload; mặc định smoke.
+Xem loadtest/README.md để cấu hình PostgreSQL, mock payment và tải phân tán.
 """
-import csv
+import base64
+import hashlib
+import hmac
+import json
 import logging
 import os
 import random
 import time
 import uuid
 from collections import Counter
-from pathlib import Path
+from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
+from pathlib import Path
+from itertools import count as sequence
 
 import gevent
 from gevent.event import Event
+from gevent.lock import Semaphore
 from locust import HttpUser, between, constant, events, task
 from locust.exception import StopUser
+from loadtest import runtime
 
 log = logging.getLogger("loadtest")
 
-SCENARIO = os.getenv("SCENARIO", "funnel").lower()
+SCENARIO = os.getenv("SCENARIO", "smoke").lower()
+SCENARIO = {"s0": "smoke", "s1": "browse", "s2": "flash", "s3": "funnel",
+            "s4": "abandon", "s5": "retry", "s6": "contention", "s7": "replay",
+            "s8": "soak", "s9": "scalability", "s10": "fault"}.get(SCENARIO, SCENARIO)
 CONCERT_ID = int(os.getenv("CONCERT_ID", "1"))
 TICKET_TYPE_ID = os.getenv("TICKET_TYPE_ID")
 PASSWORD = "secret123"
-BUSINESS_REJECTS = (400, 409)  # từ chối nghiệp vụ hợp lệ, không phải lỗi hạ tầng
+# Chuẩn bị tài khoản ngoài pha đo: không dồn bcrypt theo tốc độ mở bán.
+AUTH_SETUP_SLOTS = Semaphore(int(os.getenv("SETUP_AUTH_CONCURRENCY", "2")))
+AUTH_SEQUENCE = sequence()
+AUTH_ACCOUNTS = json.loads(Path(os.environ["AUTH_ACCOUNTS_FILE"]).read_text(encoding="utf-8")) if os.getenv("AUTH_ACCOUNTS_FILE") else []
+BUSINESS_ERRORS = {400: {"SaleClosed", "SaleNotOpen"},
+                   409: {"SoldOut", "HoldLimitExceeded", "InvalidState", "HoldExpired"}}
 
 COUNTERS = Counter()      # held / sold_out / paid / verify_ok / verify_fail ...
 SALE_OPEN = Event()        # rào chắn cho kịch bản flash
+runtime.install(events, COUNTERS, SALE_OPEN)
+
+
+def business_reject(response):
+    try:
+        return response.json().get("error") in BUSINESS_ERRORS.get(response.status_code, set())
+    except ValueError:
+        return False
+
+
+def verify(ok, label):
+    count("verify_ok" if ok else "verify_fail")
+    events.request.fire(request_type="VERIFY", name=label, response_time=0,
+                        response_length=0, exception=None if ok else AssertionError(label), context={})
+
+
+def park():
+    # Giữ user sống để Locust không tự sinh user thay thế cho tác vụ chạy một lần.
+    gevent.sleep(10**8)
 
 
 def count(key, n=1):
@@ -80,11 +87,21 @@ class BaseUser(HttpUser):
     wait_time = between(0.5, 2)
 
     def on_start(self):
+        self.client.request = runtime.timed_request(self.client.request)
         email = f"load-{uuid.uuid4().hex[:12]}@example.com"
-        self.client.post("/auth/register", json={"email": email, "password": PASSWORD},
-                         name="/auth/register [setup]")
-        r = self.client.post("/auth/login", json={"email": email, "password": PASSWORD},
-                             name="/auth/login [setup]")
+        if AUTH_ACCOUNTS:
+            worker = self.environment.runner.worker_index if hasattr(self.environment.runner, "client_id") else 0
+            position = next(AUTH_SEQUENCE) * int(os.getenv("LOADTEST_WORKERS", "1")) + worker
+            if position >= len(AUTH_ACCOUNTS):
+                count("setup_failed")
+                raise StopUser()
+            email = AUTH_ACCOUNTS[position]
+        with AUTH_SETUP_SLOTS:
+            if not AUTH_ACCOUNTS:
+                self.client.post("/auth/register", json={"email": email, "password": PASSWORD},
+                                 name="/auth/register [setup]")
+            r = self.client.post("/auth/login", json={"email": email, "password": PASSWORD},
+                                 name="/auth/login [setup]")
         if r.status_code != 200:
             # Đăng ký/đăng nhập lỗi (vd. 503 khi pool DB cạn lúc ramp-up): user này dừng,
             # được đếm vào `setup_failed` và hiện ở cột failures của request [setup].
@@ -95,6 +112,14 @@ class BaseUser(HttpUser):
         self.headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
         self.held: list[int] = []
         self.ticket_types = self._ticket_types()
+        if not self.ticket_types:
+            count("setup_failed")
+            raise StopUser()
+        self.user_index = runtime.ready(self.environment)
+        SALE_OPEN.wait()
+        if hasattr(self.environment.runner, "client_id"):
+            workers = int(os.getenv("LOADTEST_WORKERS", "1"))
+            self.user_index = (self.user_index - 1) * workers + self.environment.runner.worker_index + 1
 
     def _ticket_types(self) -> list[int]:
         r = self.client.get(f"/concerts/{CONCERT_ID}/ticket-types", name="/concerts/{id}/ticket-types [setup]")
@@ -104,7 +129,9 @@ class BaseUser(HttpUser):
         return ids
 
     def target_type(self) -> int:
-        return int(TICKET_TYPE_ID) if TICKET_TYPE_ID else random.choice(self.ticket_types)
+        if TICKET_TYPE_ID:
+            return int(TICKET_TYPE_ID)
+        return self.ticket_types[0] if SCENARIO == "flash" else random.choice(self.ticket_types)
 
     # --- các bước nghiệp vụ, trả về dữ liệu hoặc None ---
 
@@ -116,16 +143,17 @@ class BaseUser(HttpUser):
             if r.status_code == 202:
                 count("replayed" if r.headers.get("Idempotent-Replayed") == "true" else "queued")
                 return r
-            if r.status_code in BUSINESS_REJECTS:  # từ chối ngay khi gửi: hết vé, ngoài giờ bán
+            if business_reject(r):
                 count(r.json().get("error", str(r.status_code)))
                 r.success()
                 return r
             r.failure(f"unexpected {r.status_code}: {r.text[:120]}")
             return None
 
-    def wait_request(self, location, timeout=60):
+    def wait_request(self, location, timeout=None, started=None):
         """Hỏi trạng thái theo Retry-After đến khi yêu cầu xong. Trả về JSON cuối, hoặc None."""
-        started = time.monotonic()
+        started = started if started is not None else time.monotonic()
+        timeout = timeout or float(os.getenv("QUEUE_TIMEOUT_SECONDS", "60"))
         delay = 0.5
         while time.monotonic() - started < timeout:
             gevent.sleep(delay)
@@ -136,23 +164,31 @@ class BaseUser(HttpUser):
                     return None
                 body = r.json()
                 if body["status"] != "pending":
+                    error = body.get("error")
+                    expected = body["status"] == "succeeded" or error in set().union(*BUSINESS_ERRORS.values())
+                    if not expected:
+                        r.failure(f"queue failed: {error}")
                     # Thời gian từ lúc gửi đến khi có kết quả: chỉ số chính của luồng bất đồng bộ.
                     events.request.fire(request_type="QUEUE", name="order request end-to-end",
                                         response_time=(time.monotonic() - started) * 1000,
-                                        response_length=0, exception=None, context={})
+                                        response_length=0, exception=None if expected else RuntimeError(str(error)), context={})
                     return body
                 delay = float(r.headers.get("Retry-After", delay))
         count("request_timeout")
+        events.request.fire(request_type="QUEUE", name="order request end-to-end",
+                            response_time=(time.monotonic() - started) * 1000,
+                            response_length=0, exception=TimeoutError("queue timeout"), context={})
         return None
 
     def hold(self, ticket_type_id=None, quantity=None, key=None, name="/orders [POST]"):
         """Giữ chỗ đến khi có kết quả. Trả về `Result` 201 + đơn khi thành công, 409 + lỗi khi
         yêu cầu thất bại, response gốc khi bị từ chối ngay, hoặc None khi lỗi hạ tầng."""
+        started = time.monotonic()
         r = self.submit(ticket_type_id or self.target_type(), quantity or random.randint(1, 4),
                         key or uuid.uuid4().hex, name)
         if r is None or r.status_code != 202:
             return r
-        final = self.wait_request(r.headers["Location"])
+        final = self.wait_request(r.headers["Location"], started=started)
         if final is None:
             return None
         if final["status"] == "succeeded":
@@ -167,7 +203,7 @@ class BaseUser(HttpUser):
                               name="/orders/{id}/pay [POST]", catch_response=True) as r:
             if r.status_code == 200:
                 return parse_qs(urlparse(r.json()["payment_url"]).query)["token"][0]
-            if r.status_code in BUSINESS_REJECTS:
+            if business_reject(r):
                 r.success()
             else:
                 r.failure(f"unexpected {r.status_code}")
@@ -194,11 +230,42 @@ class BaseUser(HttpUser):
         with self.client.delete(f"/orders/{order_id}", headers=self.headers, name=name, catch_response=True) as r:
             if r.status_code == 200:
                 count(f"cancel_{r.json().get('status')}")
-            elif r.status_code in BUSINESS_REJECTS:
+            elif business_reject(r):
                 r.success()
             else:
                 r.failure(f"unexpected {r.status_code}")
             return r
+
+    def check_tickets(self, order_id, quantity):
+        with self.client.get(f"/orders/{order_id}/tickets", headers=self.headers,
+                             name="/orders/{id}/tickets [GET]", catch_response=True) as r:
+            if SCENARIO == "fault" and r.status_code == 503:
+                count("tickets_temporarily_unavailable")
+                r.failure("temporary database outage")
+                return
+            ok = r.status_code == 200 and len(r.json()) == quantity and all(t.get("qr_code") and t.get("status") == "sold" for t in r.json())
+            if not ok:
+                r.failure("missing tickets or QR")
+            verify(ok, "issued tickets and QR")
+
+
+class SmokeUser(BaseUser):
+    """S0 luôn đi hết luồng giữ → trả tiền → lấy vé, không chọn ngẫu nhiên bỏ đơn."""
+    abstract = True
+
+    @task
+    def full_flow(self):
+        self.client.get("/concerts")
+        r = self.hold(quantity=1)
+        if r is None or r.status_code != 201:
+            verify(False, "smoke hold")
+            return
+        order_id = self.held.pop()
+        ok = self.pay_full(order_id) == "paid"
+        verify(ok, "smoke payment")
+        if ok:
+            self.check_tickets(order_id, 1)
+            self.cancel(order_id)
 
 
 # --- S0 Smoke / S3 Funnel (S8 soak dùng cùng lớp) -------------------------------
@@ -218,6 +285,7 @@ class FunnelUser(BaseUser):
 
     @task(5)
     def hold_and_pay(self):
+        self.client.get(f"/concerts/{CONCERT_ID}/ticket-types", name="/concerts/{id}/ticket-types")
         r = self.hold()
         if r is None or r.status_code != 201:
             return
@@ -228,9 +296,7 @@ class FunnelUser(BaseUser):
         outcome = self.pay_full(order_id, "success" if random.random() < 0.9 else "failed")
         if outcome == "paid":
             count("paid")
-            self.client.get(f"/orders/{order_id}/tickets", headers=self.headers, name="/orders/{id}/tickets [GET]")
-            if random.random() < 0.05:
-                self.cancel(order_id, name="/orders/{id} [DELETE refund]")
+            self.check_tickets(order_id, r.json()["quantity"])
 
     @task(1)
     def my_orders(self):
@@ -240,18 +306,17 @@ class FunnelUser(BaseUser):
 # --- S1 Browse --------------------------------------------------------------------
 
 class BrowseUser(HttpUser):
-    """Chỉ đọc, không đăng nhập: nền tải của người xem."""
+    """Bắt đầu đọc ngay khi user được tạo để lưu lượng tăng dần trong pha ramp-up."""
     abstract = True
     wait_time = between(0.5, 2)
+
+    def on_start(self):
+        self.client.request = runtime.timed_request(self.client.request)
+        runtime.ready(self.environment)
 
     @task(4)
     def concerts(self):
         self.client.get("/concerts")
-        self.client.get("/concerts?on_sale=true", name="/concerts?on_sale=true")
-
-    @task(3)
-    def concert_detail(self):
-        self.client.get(f"/concerts/{CONCERT_ID}", name="/concerts/{id}")
 
     @task(3)
     def ticket_types(self):
@@ -261,12 +326,7 @@ class BrowseUser(HttpUser):
 # --- S2 Flash sale ----------------------------------------------------------------
 
 class FlashSaleUser(BaseUser):
-    """Đăng nhập xong thì đứng chờ; khi đủ quân số (spawning_complete) tất cả cùng giữ chỗ
-    một hạng vé có kho nhỏ (đặt TICKET_TYPE_ID), rồi thanh toán và dừng.
-
-    Phân tán: mỗi worker tự bắn `spawning_complete` khi xong phần của mình, nên thời điểm
-    mở bán trên các worker lệch nhau cỡ ramp-up của worker đó.
-    """
+    """Chờ master mở rào khi mọi user sẵn sàng; cùng giữ một hạng vé và không thanh toán."""
     abstract = True
     wait_time = constant(0)
 
@@ -276,16 +336,14 @@ class FlashSaleUser(BaseUser):
         r = self.hold(name="/orders [POST flash]")
         if r is not None and r.status_code == 201:
             order_id = self.held.pop()
-            if self.pay_full(order_id) == "paid":
-                count("paid")
-        raise StopUser()
+            count("flash_quantity", r.json()["quantity"])
+        park()
 
 
 @events.spawning_complete.add_listener
 def _open_sale(user_count, **kwargs):
-    if SCENARIO == "flash":
-        log.info("MỞ BÁN: %s user sẵn sàng", user_count)
-        SALE_OPEN.set()
+    # runtime chỉ mở rào khi mọi user đã hoàn tất đăng nhập, kể cả trên nhiều worker.
+    pass
 
 
 # --- S4 Abandon -------------------------------------------------------------------
@@ -297,8 +355,24 @@ class AbandonUser(BaseUser):
 
     @task
     def hold_once(self):
-        self.hold(name="/orders [POST abandon]")
-        raise StopUser()
+        r = self.hold(name="/orders [POST abandon]")
+        if r is not None and r.status_code == 201:
+            order = r.json()
+            deadline = datetime.fromisoformat(order["expires_at"]).replace(tzinfo=timezone.utc).timestamp()
+            while time.time() < deadline + 90:
+                gevent.sleep(1)
+                response = self.client.get(f"/orders/{order['id']}", headers=self.headers,
+                                           name="/orders/{id} [expiry]")
+                if response.status_code == 200 and response.json()["status"] == "expired":
+                    lag = max(0, time.time() - deadline)
+                    events.request.fire(request_type="SWEEPER", name="expiry lag", response_time=lag * 1000,
+                                        response_length=0, exception=None, context={})
+                    verify(lag < 10, "sweeper lag < 10s")
+                    count("expired")
+                    break
+            else:
+                verify(False, "hold expires within deadline + 90s")
+        park()
 
 
 # --- S5 Retry storm ---------------------------------------------------------------
@@ -320,10 +394,9 @@ class RetryStormUser(BaseUser):
             return  # hết vé: cả 3 cùng bị từ chối ngay là đúng
         fresh = [r for r in accepted if r.headers.get("Idempotent-Replayed") != "true"]
         ids = {r.json()["id"] for r in accepted}
-        if len(fresh) == 1 and len(ids) == 1 and len(accepted) == len(results):
-            count("verify_ok")
-        else:
-            count("verify_fail")
+        ok = len(fresh) == 1 and len(ids) == 1 and len(accepted) == 3
+        verify(ok, "retry x3 same request, one fresh")
+        if not ok:
             log.error("retry x3: %s", [(r.status_code, r.text[:80]) for r in results])
         final = self.wait_request(accepted[0].headers["Location"])
         if final is not None and final["status"] == "succeeded":
@@ -342,18 +415,17 @@ class ContentionUser(BaseUser):
         gevent.joinall(jobs)
         codes = Counter(j.value.status_code for j in jobs if j.value is not None)
         if codes.get(200) == 1 and codes.get(409) == 9:
-            count("verify_ok")
+            verify(True, f"cancel x10 {label}")
         else:
-            count("verify_fail")
+            verify(False, f"cancel x10 {label}")
             log.error("cancel x10 (%s) order %s: %s", label, order_id, dict(codes))
 
-    @task(1)
     def cancel_held(self):
         r = self.hold(quantity=1)
         if r is not None and r.status_code == 201:
             self._parallel_cancel(self.held.pop(), "held")
+            count("cancel_held_cases")
 
-    @task(1)
     def refund_paid(self):
         r = self.hold(quantity=1)
         if r is None or r.status_code != 201:
@@ -361,10 +433,10 @@ class ContentionUser(BaseUser):
         order_id = self.held.pop()
         if self.pay_full(order_id) == "paid":
             self._parallel_cancel(order_id, "paid")
+            count("refund_paid_cases")
 
-    @task(1)
-    def pay_vs_cancel(self):
-        """Thanh toán và hủy cùng lúc: đúng một bên thắng (paid hoặc cancelled)."""
+    def pay_vs_expire(self):
+        """S6 gửi webhook sát expires_at, để sweeper thực sự tranh chấp với thanh toán."""
         r = self.hold(quantity=1)
         if r is None or r.status_code != 201:
             return
@@ -372,22 +444,25 @@ class ContentionUser(BaseUser):
         token = self.start_payment(order_id)
         if token is None:
             return
-        pay_job = gevent.spawn(self.gateway_pay, token, "success", "/mock-gateway/pay [POST race]")
-        cancel_job = gevent.spawn(self.cancel, order_id, "/orders/{id} [DELETE race]")
-        gevent.joinall([pay_job, cancel_job])
-        paid = pay_job.value == "paid"
-        cancel_r = cancel_job.value
-        # DELETE đến sau khi webhook thắng sẽ hoàn tiền (200, status=refunded): vẫn là
-        # "thanh toán thắng". Chỉ status=cancelled mới là hủy thắng.
-        final = cancel_r.json().get("status") if cancel_r is not None and cancel_r.status_code == 200 else None
-        cancelled = final == "cancelled"
-        if paid != cancelled:  # đúng một bên thắng
-            count("verify_ok")
-            if paid and final != "refunded":
-                self.cancel(order_id)  # hoàn tiền để trả kho
-        else:
-            count("verify_fail")
-            log.error("pay-vs-cancel order %s: paid=%s cancel=%s", order_id, paid, final)
+        expiry = datetime.fromisoformat(r.json()["expires_at"]).replace(tzinfo=timezone.utc).timestamp()
+        gevent.sleep(max(0, expiry - time.time() + random.uniform(-0.1, 0.1)))
+        outcome = self.gateway_pay(token, "success", "/mock-gateway/pay [POST pay-vs-expire]")
+        gevent.sleep(float(os.getenv("SWEEP_WAIT_SECONDS", "6")))
+        response = self.client.get(f"/orders/{order_id}", headers=self.headers, name="/orders/{id} [race result]")
+        status = response.json().get("status") if response.status_code == 200 else None
+        verify((outcome, status) in {("paid", "paid"), ("refund_pending", "expired")}, "pay vs expire")
+        count("expiry_race_cases")
+        if status == "paid":
+            self.check_tickets(order_id, 1)
+            self.cancel(order_id)
+
+    @task
+    def contention_once(self):
+        self.cancel_held()
+        self.refund_paid()
+        if self.user_index <= int(os.getenv("EXPIRY_RACE_USERS", "100")):
+            self.pay_vs_expire()
+        park()
 
 
 # --- S7 Webhook replay ------------------------------------------------------------
@@ -405,22 +480,40 @@ class ReplayUser(BaseUser):
         token = self.start_payment(order_id)
         if token is None:
             return
-        jobs = [gevent.spawn(self.gateway_pay, token, "success", "/mock-gateway/pay [POST x5]") for _ in range(5)]
+        payload = json.loads(base64.urlsafe_b64decode(token.split(".")[0]))
+        body = json.dumps({"payment_id": payload["payment_id"], "amount": payload["amount"],
+                           "status": "succeeded"}).encode()
+        secret = os.getenv("PAYMENT_WEBHOOK_SECRET", "dev-payment-secret-change-me")
+        headers = {"Content-Type": "application/json",
+                   "x-mock-signature": hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()}
+
+        def webhook():
+            with self.client.post("/payments/webhook", data=body, headers=headers,
+                                  name="/payments/webhook [POST x5]", catch_response=True) as response:
+                if response.status_code != 200:
+                    response.failure(f"unexpected {response.status_code}")
+                    return None
+                return response.json().get("result")
+
+        jobs = [gevent.spawn(webhook) for _ in range(5)]
         gevent.joinall(jobs)
         outcomes = Counter(j.value for j in jobs)
+        count("replay_cases")
         if outcomes.get("paid") == 1 and outcomes.get("duplicate") == 4:
-            count("verify_ok")
+            verify(True, "webhook x5 one paid four duplicate")
+            self.check_tickets(order_id, 1)
         else:
-            count("verify_fail")
+            verify(False, "webhook x5 one paid four duplicate")
             log.error("webhook x5 order %s: %s", order_id, dict(outcomes))
-        self.cancel(order_id)  # hoàn tiền để trả kho
+        park()
 
 
 # --- Chọn kịch bản ------------------------------------------------------------------
 
 SCENARIOS = {
-    "smoke": FunnelUser, "funnel": FunnelUser, "browse": BrowseUser, "flash": FlashSaleUser,
+    "smoke": SmokeUser, "funnel": FunnelUser, "browse": BrowseUser, "flash": FlashSaleUser,
     "abandon": AbandonUser, "retry": RetryStormUser, "contention": ContentionUser, "replay": ReplayUser,
+    "soak": FunnelUser, "scalability": FunnelUser, "fault": FunnelUser,
 }
 if SCENARIO not in SCENARIOS:
     raise SystemExit(f"SCENARIO={SCENARIO!r} không hợp lệ; chọn một trong {sorted(SCENARIOS)}")
@@ -439,39 +532,4 @@ def _on_stop(environment, **kwargs):
     log.info("Bộ đếm nghiệp vụ: %s", dict(sorted(COUNTERS.items())))
     if COUNTERS.get("verify_fail"):
         log.error("CÓ %s kiểm tra 'đúng một bên thắng' THẤT BẠI", COUNTERS["verify_fail"])
-    url = os.getenv("LOADTEST_DATABASE_URL")
-    if url:
-        check_inventory(url)
-
-
-def check_inventory(url: str) -> None:
-    """Bất biến kho: remaining + Σ quantity(held, paid) == total; vé available == remaining;
-    không vé nào có order_id mà không ở held/sold. Chạy sau khi tải dừng (đơn held còn hạn
-    vẫn tính vào Σ, nên kết quả đúng ngay cả khi sweeper chưa chạy)."""
-    try:
-        import psycopg
-    except ImportError:
-        log.error("Cần psycopg để kiểm tra kho: pip install psycopg[binary]")
-        return
-    query = """
-        SELECT tt.id, tt.name, tt.total_quantity, tt.remaining,
-               COALESCE((SELECT SUM(o.quantity) FROM orders o
-                         WHERE o.ticket_type_id = tt.id AND o.status IN ('held', 'paid')), 0) AS active,
-               (SELECT COUNT(*) FROM tickets t WHERE t.ticket_type_id = tt.id AND t.status = 'available') AS available,
-               (SELECT COUNT(*) FROM tickets t WHERE t.ticket_type_id = tt.id AND t.status = 'held') AS held,
-               (SELECT COUNT(*) FROM tickets t WHERE t.ticket_type_id = tt.id AND t.status = 'sold') AS sold
-        FROM ticket_types tt ORDER BY tt.id
-    """
-    with psycopg.connect(url.replace("postgresql+psycopg://", "postgresql://")) as conn:
-        rows = conn.execute(query).fetchall()
-    out = Path(__file__).with_name(f"inventory_check_{SCENARIO}.csv")
-    ok = True
-    with out.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["ticket_type_id", "name", "total", "remaining", "active_orders", "available", "held", "sold", "ok"])
-        for tid, name, total, remaining, active, available, held, sold in rows:
-            row_ok = (remaining + active == total and available == remaining
-                      and held + sold == active and remaining >= 0)
-            ok &= row_ok
-            writer.writerow([tid, name, total, remaining, active, available, held, sold, row_ok])
-    log.log(logging.INFO if ok else logging.ERROR, "Bất biến kho: %s → %s", "ĐÚNG" if ok else "SAI", out)
+    # Báo cáo và kiểm tra DB thực hiện ở runner sau khi mọi worker đã dừng.

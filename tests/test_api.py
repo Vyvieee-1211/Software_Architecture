@@ -2,8 +2,9 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 import pytest
+from fastapi import routing
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -344,6 +345,22 @@ def test_unknown_concert_returns_not_found(client, path):
     response = client.get(path)
     assert response.status_code == 404
     assert response.json() == {"error": "NotFound", "detail": "concert 9999"}
+
+
+@pytest.mark.parametrize("path", ["/concerts", "/concerts/1", "/concerts/1/ticket-types"])
+def test_concert_reads_return_connection_before_serializing(client, monkeypatch, path):
+    """Phát hiện kết nối bị giữ trong lúc FastAPI tạo response."""
+    pool_events = []
+    event.listen(database.engine, "checkout", lambda *_: pool_events.append("checkout"))
+    event.listen(database.engine, "checkin", lambda *_: pool_events.append("checkin"))
+    serialize = routing.serialize_response
+
+    async def assert_connection_returned(**kwargs):
+        assert pool_events == ["checkout", "checkin"]
+        return await serialize(**kwargs)
+
+    monkeypatch.setattr(routing, "serialize_response", assert_connection_returned)
+    assert client.get(path).status_code == 200
 
 
 def test_public_ticket_types(client):

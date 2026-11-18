@@ -1,2 +1,2 @@
-locust>=2.32
-psycopg[binary]
+locust==2.46.6
+psycopg[binary]==3.3.9

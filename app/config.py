@@ -15,7 +15,7 @@ JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me-please-use-32-bytes-o
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 
 # Waiting limits, not an end-to-end HTTP request deadline.
-DB_POOL_SIZE = _number("DB_POOL_SIZE", 5, int, 1)
+DB_POOL_SIZE = _number("DB_POOL_SIZE", 20, int, 1)
 DB_MAX_OVERFLOW = _number("DB_MAX_OVERFLOW", 10, int, 0)
 DB_POOL_TIMEOUT_SECONDS = _number("DB_POOL_TIMEOUT_SECONDS", 2, float, 0.01)
 DB_SQLITE_BUSY_TIMEOUT_SECONDS = _number("DB_SQLITE_BUSY_TIMEOUT_SECONDS", 1, float, 0.01)

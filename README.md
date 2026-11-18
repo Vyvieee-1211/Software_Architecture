@@ -328,6 +328,16 @@ python -m pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
+Chạy cấu hình kiểm tải trên Windows với **1 API worker**, pool **20 + 10 kết nối mỗi
+tiến trình**, thời gian chờ pool **2 giây**:
+
+```powershell
+.\scripts\start_api.ps1
+```
+
+Docker image cũng mặc định chạy 1 worker. Không dùng `--reload` khi đo tải.
+Các giá trị này là cấu hình thử nghiệm; kết quả chịu tải cần đối chiếu báo cáo Locust.
+
 **Bước 4: Khởi tạo dữ liệu mẫu**
 
 Mở terminal khác, kích hoạt cùng môi trường ảo rồi chạy:
