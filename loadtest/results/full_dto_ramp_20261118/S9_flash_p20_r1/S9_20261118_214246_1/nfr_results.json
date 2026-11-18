@@ -1,0 +1,42 @@
+{
+  "scenario": "S9",
+  "status": "FAIL",
+  "http_requests": 4545,
+  "http_failures": 2613,
+  "failure_ratio": 0.574917491749175,
+  "counters": {
+    "queued": 387,
+    "held": 192,
+    "flash_quantity": 500,
+    "SoldOut": 195
+  },
+  "inventory_ok": true,
+  "inventory_error": null,
+  "metrics": {
+    "POST /orders [POST flash]": {
+      "count": 3000,
+      "p50_ms": 2859.5384000000195,
+      "p95_ms": 4658.309400001599,
+      "p99_ms": 7336.028199999419
+    },
+    "QUEUE order request end-to-end": {
+      "count": 387,
+      "p50_ms": 11165.372200001002,
+      "p95_ms": 15169.495599999209,
+      "p99_ms": 15267.884000000777
+    },
+    "GET /orders/requests/{id} [GET]": {
+      "count": 1545,
+      "p50_ms": 766.7331999982707,
+      "p95_ms": 1529.8336000014388,
+      "p99_ms": 1607.7728000018396
+    }
+  },
+  "scenario_checks": {
+    "checks": {},
+    "evidence": {},
+    "conventions": "RAM: so trung vị 5 phút đầu/cuối, tăng <=20% là ổn định quan sát; kết nối: chênh <=2. Đây là quy ước đo, không chứng minh tuyệt đối không leak."
+  },
+  "scope": "Đánh giá tự động một phần; xem README để đối chiếu đầy đủ tiêu chí notebook.",
+  "note": "Đối chiếu scenario_checks.json; thiếu bằng chứng không được tính PASS. Kết luận S9 nằm trong báo cáo ma trận tổng hợp."
+}

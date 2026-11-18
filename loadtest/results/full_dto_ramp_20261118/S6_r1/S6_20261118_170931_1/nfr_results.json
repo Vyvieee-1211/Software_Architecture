@@ -1,0 +1,127 @@
+{
+  "scenario": "S6",
+  "status": "FAIL",
+  "http_requests": 6036,
+  "http_failures": 1831,
+  "failure_ratio": 0.30334658714380386,
+  "counters": {
+    "queued": 499,
+    "held": 499,
+    "cancel_cancelled": 200,
+    "verify_ok": 321,
+    "cancel_held_cases": 200,
+    "verify_fail": 220,
+    "webhook_paid": 241,
+    "cancel_refunded": 241,
+    "refund_paid_cases": 199,
+    "webhook_refund_pending": 58,
+    "expiry_race_cases": 100
+  },
+  "inventory_ok": true,
+  "inventory_error": null,
+  "metrics": {
+    "POST /orders [POST]": {
+      "count": 500,
+      "p50_ms": 1576.2915000000248,
+      "p95_ms": 2420.2605999998923,
+      "p99_ms": 5043.513199999779
+    },
+    "QUEUE order request end-to-end": {
+      "count": 499,
+      "p50_ms": 4213.227399999596,
+      "p95_ms": 8456.419000000096,
+      "p99_ms": 9293.401500000073
+    },
+    "GET /orders/requests/{id} [GET]": {
+      "count": 764,
+      "p50_ms": 1244.2489999998543,
+      "p95_ms": 1968.8874000003125,
+      "p99_ms": 2025.9737000001223
+    },
+    "DELETE /orders/{id} [DELETE x10 held]": {
+      "count": 2000,
+      "p50_ms": 2068.5748999999305,
+      "p95_ms": 7378.934599999866,
+      "p99_ms": 7945.122799999808
+    },
+    "VERIFY cancel x10 held": {
+      "count": 200,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "POST /orders/{id}/pay [POST]": {
+      "count": 299,
+      "p50_ms": 2268.9620000001014,
+      "p95_ms": 2485.392900000079,
+      "p99_ms": 2574.3478999997933
+    },
+    "POST /mock-gateway/pay [POST]": {
+      "count": 199,
+      "p50_ms": 2267.676599999959,
+      "p95_ms": 2486.9462999999996,
+      "p99_ms": 2516.3510000002134
+    },
+    "DELETE /orders/{id} [DELETE x10 paid]": {
+      "count": 1990,
+      "p50_ms": 2873.272799999995,
+      "p95_ms": 6413.322400000197,
+      "p99_ms": 6857.24110000001
+    },
+    "VERIFY cancel x10 paid": {
+      "count": 199,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "POST /mock-gateway/pay [POST pay-vs-expire]": {
+      "count": 100,
+      "p50_ms": 25.822399999924528,
+      "p95_ms": 30.782100000124046,
+      "p99_ms": 32.92189999956463
+    },
+    "GET /orders/{id} [race result]": {
+      "count": 100,
+      "p50_ms": 14.969100000143953,
+      "p95_ms": 18.505699999877834,
+      "p99_ms": 29.42799999982526
+    },
+    "VERIFY pay vs expire": {
+      "count": 100,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "VERIFY issued tickets and QR": {
+      "count": 42,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "GET /orders/{id}/tickets [GET]": {
+      "count": 42,
+      "p50_ms": 13.565400000061345,
+      "p95_ms": 16.280299999834824,
+      "p99_ms": 20.095800000035524
+    },
+    "DELETE /orders/{id} [DELETE]": {
+      "count": 42,
+      "p50_ms": 39.687899999989895,
+      "p95_ms": 49.28330000029746,
+      "p99_ms": 60.563099999853875
+    }
+  },
+  "scenario_checks": {
+    "checks": {
+      "no_duplicate_transaction_events": true,
+      "each_refund_gateway_called_once": true,
+      "no_extra_refund_gateway_calls": true
+    },
+    "evidence": {
+      "mock_refund_call_count": 299
+    },
+    "conventions": "RAM: so trung vị 5 phút đầu/cuối, tăng <=20% là ổn định quan sát; kết nối: chênh <=2. Đây là quy ước đo, không chứng minh tuyệt đối không leak."
+  },
+  "scope": "Đánh giá tự động một phần; xem README để đối chiếu đầy đủ tiêu chí notebook.",
+  "note": "Đối chiếu scenario_checks.json; thiếu bằng chứng không được tính PASS. Kết luận S9 nằm trong báo cáo ma trận tổng hợp."
+}

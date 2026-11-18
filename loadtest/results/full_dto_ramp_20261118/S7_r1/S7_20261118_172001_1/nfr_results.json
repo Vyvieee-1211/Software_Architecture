@@ -1,0 +1,80 @@
+{
+  "scenario": "S7",
+  "status": "FAIL",
+  "http_requests": 3076,
+  "http_failures": 334,
+  "failure_ratio": 0.10858257477243173,
+  "counters": {
+    "queued": 300,
+    "held": 300,
+    "replay_cases": 300,
+    "verify_ok": 432,
+    "verify_fail": 84
+  },
+  "inventory_ok": true,
+  "inventory_error": null,
+  "metrics": {
+    "POST /orders [POST]": {
+      "count": 300,
+      "p50_ms": 2147.855199999867,
+      "p95_ms": 6813.415800000257,
+      "p99_ms": 7273.887400000149
+    },
+    "QUEUE order request end-to-end": {
+      "count": 300,
+      "p50_ms": 11052.350699999806,
+      "p95_ms": 16532.249599999886,
+      "p99_ms": 16802.673499999855
+    },
+    "GET /orders/requests/{id} [GET]": {
+      "count": 760,
+      "p50_ms": 2370.3745000002527,
+      "p95_ms": 2641.0273999999845,
+      "p99_ms": 2711.18529999967
+    },
+    "POST /orders/{id}/pay [POST]": {
+      "count": 300,
+      "p50_ms": 2745.0713000002906,
+      "p95_ms": 3382.322599999952,
+      "p99_ms": 3407.7188999999635
+    },
+    "POST /payments/webhook [POST x5]": {
+      "count": 1500,
+      "p50_ms": 2722.1996000002946,
+      "p95_ms": 6470.829100000174,
+      "p99_ms": 7273.585500000081
+    },
+    "VERIFY webhook x5 one paid four duplicate": {
+      "count": 300,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "VERIFY issued tickets and QR": {
+      "count": 216,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "GET /orders/{id}/tickets [GET]": {
+      "count": 216,
+      "p50_ms": 913.7292000000343,
+      "p95_ms": 2560.029199999917,
+      "p99_ms": 2691.6332000000693
+    }
+  },
+  "scenario_checks": {
+    "checks": {
+      "no_duplicate_transaction_events": true,
+      "300_payments_and_sold_quantity_match": true
+    },
+    "evidence": {
+      "replay_paid_orders": 300,
+      "replay_paid_quantity": 300,
+      "replay_sold_tickets": 300
+    },
+    "conventions": "RAM: so trung vị 5 phút đầu/cuối, tăng <=20% là ổn định quan sát; kết nối: chênh <=2. Đây là quy ước đo, không chứng minh tuyệt đối không leak."
+  },
+  "scope": "Đánh giá tự động một phần; xem README để đối chiếu đầy đủ tiêu chí notebook.",
+  "note": "Đối chiếu scenario_checks.json; thiếu bằng chứng không được tính PASS. Kết luận S9 nằm trong báo cáo ma trận tổng hợp."
+}
