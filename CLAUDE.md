@@ -93,7 +93,7 @@ All datetimes are naive UTC. `OrderService`/`PaymentService` take an injectable 
 
 ### Frontend
 
-`frontend/` is a hash-routed SPA in plain ES modules, served by `app/main.py` (static mount at `/`, after the API routers) or by `node frontend/dev-server.cjs` via `python -m scripts.dev`. Booking polls the order request (`api.waitForOrder`), but the orders page still models the pre-hold flow (`confirmed` status, no payment step) and needs updating to `held`/`paid`, `POST /orders/{id}/pay` and the tickets page.
+`frontend/` is a hash-routed SPA in plain ES modules, served by `app/main.py` (static mount at `/`, after the API routers) or by `node frontend/dev-server.cjs` via `python -m scripts.dev`. Booking is one click with no confirm dialog (cinema-style): "Đặt vé & thanh toán" submits the order request, polls it (`api.waitForOrder`), calls `POST /orders/{id}/pay` and redirects the same tab to `payment_url`; the mock checkout page (`?order_id=` is only used for its return link) redirects back to `#/orders/{id}` after paying. If `pay` fails after a successful hold, the user lands on `#/orders/{id}` to retry. The order page has a 4-step tracker, a per-second hold countdown from `expires_at`, a "Thanh toán" button (same-tab redirect), polling of `GET /orders/{id}` every 3 s while the order is `held`, QR tickets loaded as blobs (the QR endpoint needs the bearer token), and two cancel flows (held → cancel hold; paid → refund, only while `REFUND_CUTOFF_HOURS` remain). `HOLD_MINUTES`/`REFUND_CUTOFF_HOURS` are duplicated as display constants at the top of `app.js`.
 
 ## Repository state to be aware of
 

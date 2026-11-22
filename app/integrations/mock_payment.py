@@ -38,7 +38,8 @@ class MockPaymentGateway:
         token = self.checkout_token(payment_id, amount)
         return PaymentIntent(
             payment_id=payment_id,
-            payment_url=f"{self._base_url}/mock-gateway/checkout?token={token}",
+            # order_id chỉ để trang cổng đưa khách về lại trang đơn (giống return URL của cổng thật).
+            payment_url=f"{self._base_url}/mock-gateway/checkout?token={token}&order_id={order_id}",
             raw={"order_id": order_id, "amount": str(amount), "description": description},
         )
 

@@ -55,13 +55,14 @@ const messages = {
   SoldOut: 'Số vé còn lại không đủ. Vui lòng kiểm tra lại số lượng và hạng vé.',
   Forbidden: 'Bạn không có quyền thực hiện thao tác này.',
   NotFound: 'Không tìm thấy thông tin bạn yêu cầu.',
-  InvalidState: 'Đơn vé này đã được huỷ hoặc không thể thay đổi trạng thái.',
+  InvalidState: 'Trạng thái đơn vé đã thay đổi nên không thể thực hiện thao tác này. Vui lòng xem lại đơn.',
   IdempotencyKeyReused: 'Yêu cầu đặt vé đã thay đổi so với lần gửi trước. Vui lòng kiểm tra lại đơn vé.',
   HoldExpired: 'Đơn giữ chỗ đã quá hạn thanh toán. Vui lòng đặt lại.',
   HoldLimitExceeded: 'Bạn đang giữ quá nhiều vé chưa thanh toán. Hãy thanh toán hoặc huỷ bớt đơn.',
   SaleClosed: 'Concert đã diễn ra, không còn nhận đặt vé.',
   RefundWindowClosed: 'Đã quá hạn hoàn tiền: chỉ huỷ được đơn đã thanh toán trước giờ diễn ít nhất 24 giờ.',
   PaymentGatewayError: 'Cổng thanh toán không phản hồi. Vui lòng thử lại sau.',
+  ProcessingFailed: 'Hệ thống gặp lỗi khi xử lý yêu cầu đặt vé. Vui lòng thử lại sau ít phút; nếu vẫn lỗi, hãy liên hệ ban tổ chức.',
 };
 
 // Một khoá cho MỘT lần đặt vé; gửi lại đúng khoá này khi retry để server không tạo đơn trùng.
@@ -155,6 +156,23 @@ async function waitForOrder(orderRequest, { timeoutMs = 60000 } = {}) {
   throw new ApiError(messages[current.error] || 'Không thể giữ chỗ lúc này. Vui lòng thử lại.', 409, current.error || '');
 }
 
+// Ảnh QR (SVG) của một vé đã xuất. API cần token nên không gắn thẳng vào <img src>:
+// tải về dạng Blob để trang tạo object URL.
+async function ticketQr(orderId, ticketId) {
+  const token = session?.token;
+  try {
+    const response = await fetch(`/orders/${orderId}/tickets/${ticketId}/qr`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new ApiError('Chưa tải được mã QR của vé này.', response.status, 'QrUnavailable');
+    return await response.blob();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw new ApiError('Không thể kết nối máy chủ để tải mã QR.', 0, 'NetworkError');
+  }
+}
+
 export const api = {
   concerts: () => request('/concerts'),
   ticketTypes: (id) => request(`/concerts/${id}/ticket-types`),
@@ -174,5 +192,10 @@ export const api = {
   }),
   orderRequest: (id) => request(`/orders/requests/${id}`, { auth: true }),
   waitForOrder,
+  order: (id) => request(`/orders/${id}`, { auth: true }),
+  // Tạo giao dịch ở cổng thanh toán; gọi lại khi đang chờ thì server trả lại đúng giao dịch cũ.
+  payOrder: (id) => request(`/orders/${id}/pay`, { method: 'POST', auth: true }),
+  orderTickets: (id) => request(`/orders/${id}/tickets`, { auth: true }),
+  ticketQr,
   cancelOrder: (id) => request(`/orders/${id}`, { method: 'DELETE', auth: true }),
 };
