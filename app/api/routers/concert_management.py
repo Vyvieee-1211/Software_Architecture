@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Response, status
 
-from app.api.deps import get_admin_user, get_db
+from app.api.deps import get_admin_user, get_catalog_admin_db
 from app.api.schemas import ConcertInput, ConcertResponse, CreateConcertInput, TicketTypeInput, TicketTypeResponse
 from app.repositories.concert_management_repo import ConcertManagementRepository
 from app.services.concert_management_service import ConcertManagementService
@@ -8,7 +8,7 @@ from app.services.concert_management_service import ConcertManagementService
 router = APIRouter(prefix="/concerts", tags=["concert management"], dependencies=[Depends(get_admin_user)])
 
 
-def get_management_service(db=Depends(get_db, scope="function")):
+def get_management_service(db=Depends(get_catalog_admin_db)):
     return ConcertManagementService(ConcertManagementRepository(db))
 
 

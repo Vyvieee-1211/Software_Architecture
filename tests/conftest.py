@@ -8,6 +8,9 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["HOLD_SWEEP_INTERVAL_SECONDS"] = "0"
 # Không chạy worker hàng đợi đặt vé: test tự gọi drain() để xử lý một cách tất định.
 os.environ["ORDER_WORKERS"] = "0"
+# Tắt cache danh sách concert để test đọc thấy ngay dữ liệu vừa ghi; cache có test riêng
+# (tests/test_catalog_cache.py) tự bật lại.
+os.environ["CATALOG_CACHE_TTL_SECONDS"] = "0"
 
 from app.repositories.models import TicketType  # noqa: E402
 from app.repositories.ticket_repo import TicketRepository  # noqa: E402

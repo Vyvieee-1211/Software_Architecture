@@ -28,6 +28,10 @@ DB_BREAKER_RECOVERY_SECONDS = _number("DB_BREAKER_RECOVERY_SECONDS", 10, float, 
 
 ADMIN_EMAILS = frozenset(email.strip().lower() for email in os.getenv("ADMIN_EMAILS", "demo@example.com").split(",") if email.strip())
 
+# Cache-Aside cho danh sách concert/hạng vé (giây). Số vé còn lại hiển thị có thể cũ tối đa
+# chừng này; đặt mua vẫn kiểm tra kho trong DB. 0 = tắt cache, mọi lần đọc vào DB.
+CATALOG_CACHE_TTL_SECONDS = _number("CATALOG_CACHE_TTL_SECONDS", 2, float, 0)
+
 # --- Giữ chỗ / thanh toán -------------------------------------------------
 # Thời gian giữ vé chờ thanh toán; quá hạn thì đơn hết hạn và vé được trả về kho.
 HOLD_MINUTES = _number("HOLD_MINUTES", 12, float, 0.01)

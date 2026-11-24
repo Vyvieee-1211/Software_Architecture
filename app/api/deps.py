@@ -7,6 +7,7 @@ from collections.abc import Generator
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app import config
@@ -25,6 +26,7 @@ from app.services.order_request_service import OrderRequestService
 from app.services.order_service import OrderService
 from app.services.payment_gateway import PaymentGateway
 from app.services.payment_service import PaymentService
+from app.services.read_cache import ReadThroughCache
 from app.services.ticket_codes import TicketCodes
 
 
@@ -50,8 +52,21 @@ def _uow() -> SqlAlchemyUnitOfWork:
     return SqlAlchemyUnitOfWork(SessionLocal)
 
 
+# Cache danh sách concert/hạng vé dùng chung cho mọi request của tiến trình (Cache-Aside).
+catalog_cache = ReadThroughCache(config.CATALOG_CACHE_TTL_SECONDS)
+
+
 def get_concert_service() -> ConcertService:
-    return ConcertService(_uow, protect=database_policy.protect)
+    return ConcertService(_uow, protect=database_policy.protect, cache=catalog_cache)
+
+
+def get_catalog_admin_db(db: Session = Depends(get_db, scope="function")) -> Session:
+    """Session cho quản lý concert: xóa cache danh sách SAU KHI thay đổi đã commit.
+
+    Xóa trước commit thì một request đọc chen giữa có thể nạp lại dữ liệu cũ vào cache.
+    """
+    event.listen(db, "after_commit", lambda _session: catalog_cache.invalidate())
+    return db
 
 
 def get_order_service() -> OrderService:
