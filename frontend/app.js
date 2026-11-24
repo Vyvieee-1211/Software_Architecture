@@ -20,6 +20,22 @@ const drafts = new Map();
 let pendingBooking = null;
 const BOOKING_RETRIES = 2;
 
+// Khớp với cấu hình mặc định của server (HOLD_MINUTES, REFUND_CUTOFF_HOURS). Chỉ dùng để
+// hiển thị: hạn giữ chỗ thật lấy từ `expires_at`, và server luôn là bên kiểm tra cuối cùng.
+const HOLD_MINUTES = 12;
+const REFUND_CUTOFF_HOURS = 24;
+const ORDER_POLL_MS = 3000;
+const ORDER_STATUS = {
+  held: { label: 'Đang giữ chỗ', badge: 'badge-warning' },
+  paid: { label: 'Đã thanh toán', badge: 'badge-success' },
+  expired: { label: 'Hết hạn giữ chỗ', badge: 'badge-muted' },
+  cancelled: { label: 'Đã huỷ', badge: 'badge-muted' },
+  failed: { label: 'Thanh toán thất bại', badge: 'badge-danger' },
+  refunded: { label: 'Đã hoàn tiền', badge: 'badge-muted' },
+};
+// Trang chi tiết đơn đang mở: { order, ticket, tickets, qrUrls, watching }.
+let orderView = null;
+
 const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const money = (value) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(Number(value));
 const date = (value) => new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`);
@@ -27,7 +43,15 @@ const dateText = (value, options = {}) => !value || Number.isNaN(date(value).get
 const isOpen = (concert) => date(concert.sale_open_time).getTime() <= Date.now();
 const saleBadge = (concert) => `<span class="badge ${isOpen(concert) ? 'badge-success' : 'badge-muted'}">${isOpen(concert) ? 'Đang mở bán' : 'Sắp mở bán'}</span>`;
 const path = () => (location.hash.slice(1) || '/').split('?')[0];
-const safeNext = (value) => /^\/(?:concerts\/\d+|my-orders|manage(?:\/\d+)?)?$/.test(value || '') ? value : '/';
+const safeNext = (value) => /^\/(?:concerts\/\d+|my-orders|orders\/\d+|manage(?:\/\d+)?)?$/.test(value || '') ? value : '/';
+const statusBadge = (status) => `<span class="badge ${ORDER_STATUS[status]?.badge || 'badge-muted'}">${escape(ORDER_STATUS[status]?.label || status)}</span>`;
+const secondsLeft = (expiresAt) => Math.max(0, Math.floor((date(expiresAt).getTime() - Date.now()) / 1000));
+const clockText = (seconds) => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+const holdActive = (order) => order.status === 'held' && secondsLeft(order.expires_at) > 0;
+// Hoàn tiền chỉ nhận khi còn cách giờ diễn ít nhất REFUND_CUTOFF_HOURS.
+const refundOpen = (order, concert) => order.status === 'paid' && Boolean(concert)
+  && date(concert.start_time).getTime() - Date.now() >= REFUND_CUTOFF_HOURS * 3600 * 1000;
+const countdown = (order, size = '') => `<span class="countdown ${size}" role="timer" aria-label="Thời gian giữ chỗ còn lại"><span aria-hidden="true">⏱</span> <strong data-countdown="${escape(order.expires_at)}">${clockText(secondsLeft(order.expires_at))}</strong></span>`;
 const nextPage = () => safeNext(new URLSearchParams(location.hash.split('?')[1] || '').get('next'));
 
 function navigate(destination) {
@@ -49,7 +73,7 @@ function renderHeader() {
     ? `<a class="account-profile" href="#/my-orders" aria-label="${escape(accountName)} — Vé của tôi"><span class="account-avatar" aria-hidden="true">${escape(initials)}</span><span class="account-copy"><span class="account-greeting">Xin chào,</span><span class="account-name" title="${escape(accountName)}">${escape(accountName)}</span></span></a><button class="button button-secondary button-small" data-action="logout">Đăng xuất</button>`
     : '<a class="button button-secondary button-small" href="#/login">Đăng nhập</a><a class="button button-primary button-small" href="#/register">Đăng ký</a>';
   document.querySelectorAll('[data-nav]').forEach((link) => {
-    const active = link.dataset.nav === 'manage' ? path().startsWith('/manage') : link.dataset.nav === 'orders' ? path() === '/my-orders' : link.dataset.nav === 'concerts' ? path() === '/concerts' || path().startsWith('/concerts/') : path() === '/';
+    const active = link.dataset.nav === 'manage' ? path().startsWith('/manage') : link.dataset.nav === 'orders' ? path() === '/my-orders' || path().startsWith('/orders/') :link.dataset.nav === 'concerts' ? path() === '/concerts' || path().startsWith('/concerts/') : path() === '/';
     link.classList.toggle('active', active);
     if (active) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
@@ -84,9 +108,10 @@ function empty(title, description, action = '') {
 async function renderRoute() {
   const version = ++pageVersion;
   detail = null;
+  closeOrderView();
   if (!mutationBusy) dialog.close();
   const route = path();
-  if ((route === '/my-orders' || /^\/manage(?:\/\d+)?$/.test(route)) && !getSession()) {
+  if ((route === '/my-orders' || /^\/orders\/\d+$/.test(route) || /^\/manage(?:\/\d+)?$/.test(route)) && !getSession()) {
     navigate(`/login?next=${encodeURIComponent(route)}`);
     showNotice('Đăng nhập để xem và quản lý đơn vé của bạn.');
     return;
@@ -98,6 +123,7 @@ async function renderRoute() {
     else if (/^\/concerts\/\d+$/.test(route)) await renderDetail(version, Number(route.split('/')[2]));
     else if (route === '/login' || route === '/register') renderAuth(route === '/register');
     else if (route === '/my-orders') await renderOrders(version);
+    else if (/^\/orders\/\d+$/.test(route)) await renderOrderDetail(version, Number(route.split('/')[2]));
     else if (/^\/manage(?:\/\d+)?$/.test(route)) await renderManagement(main, Number(route.split('/')[2]) || null, () => version === pageVersion, showNotice);
     else {
       document.title = 'Không tìm thấy trang — HIT THE VIBE';
@@ -224,8 +250,8 @@ async function renderDetail(version, id) {
   detail = { concert, tickets, selectedId: selected?.id };
   document.title = `${eventTitle(concert)} — HIT THE VIBE`;
   main.innerHTML = `<section class="detail-art-banner"><div class="container"><a class="back-link" href="#/concerts">← Tất cả concert</a><div class="detail-banner-title"><p class="eyebrow">HIT THE VIBE / LIVE CONCERT</p><h1>${escape(eventTitle(concert))}</h1><span>${escape(eventArtist(concert))}</span></div><span class="detail-banner-stamp" aria-hidden="true">LIVE<br>EXPERIENCE ↗</span></div></section>
-    <div class="container detail-page"><div class="detail-grid"><div class="event-information"><section class="detail-heading"><p class="eyebrow">THÔNG TIN SỰ KIỆN</p>${saleBadge(concert)}<h2>${escape(eventTitle(concert))}</h2><div class="event-info-grid"><div><span>Nghệ sĩ</span><strong>${escape(eventArtist(concert))}</strong></div><div><span>Thời gian</span><strong>${escape(dateText(concert.start_time))}</strong></div><div><span>Địa điểm</span><strong>${escape(eventVenue(concert))}</strong></div><div><span>Thời gian mở bán</span><strong>${escape(dateText(concert.sale_open_time))}</strong></div></div></section><section class="event-about"><h2>Về sự kiện</h2><p>Thông tin giới thiệu chi tiết sẽ được cập nhật. Bạn có thể xem nghệ sĩ, thời gian và địa điểm diễn ở trên, chọn hạng vé và xác nhận đơn vé tại đây.</p>${poster(concert, 'detail-poster')}<p class="artwork-caption">HIT THE VIBE / Minh họa không khí đêm nhạc.</p></section><section class="booking-guide"><p class="eyebrow">TRƯỚC KHI ĐẶT VÉ</p><h2>Sẵn sàng cho đêm nhạc.</h2><ol><li>Chọn một hạng vé và số lượng phù hợp.</li><li>Kiểm tra tổng tiền trước khi xác nhận.</li><li>Quản lý vé đã đặt trong mục “Vé của tôi”.</li></ol></section></div>
-      <aside class="booking-panel" aria-labelledby="booking-title"><div class="booking-panel-header"><span class="eyebrow">YOUR TICKET TO THE MOMENT</span><h2 id="booking-title">Chọn vé của bạn</h2><p>Mỗi đơn tối đa 10 vé · Một hạng vé mỗi đơn</p></div><div id="sale-notice">${!isOpen(concert) ? `<div class="notice notice-info">Vé mở bán lúc ${escape(dateText(concert.sale_open_time))} (giờ Việt Nam).</div>` : ''}</div><div class="ticket-list" role="radiogroup" aria-label="Chọn hạng vé">${tickets.length ? tickets.map((ticket) => `<div class="ticket-option ${selected?.id === ticket.id ? 'is-selected' : ''}"><label class="ticket-option-label"><input type="radio" name="ticket" value="${ticket.id}" ${selected?.id === ticket.id ? 'checked' : ''} ${ticket.remaining <= 0 ? 'disabled' : ''}><span class="ticket-copy"><strong>${escape(ticket.name)}</strong><span class="ticket-stock">${ticket.remaining > 0 ? `Còn ${ticket.remaining.toLocaleString('vi-VN')} vé` : 'Đã hết vé'}</span></span></label><div class="ticket-option-bottom"><span class="ticket-price">${money(ticket.price)}</span>${rowQuantity(ticket, selected?.id, quantity)}</div></div>`).join('') : empty('Chưa có hạng vé', 'Thông tin vé sẽ được cập nhật sau.')}</div><div class="booking-summary"><div class="summary-row"><span>Hạng vé</span><strong id="summary-ticket"></strong></div><div class="summary-row"><span>Đơn giá</span><strong id="summary-price"></strong></div><div class="selected-quantity"><label for="quantity">Số lượng đã chọn</label><div class="quantity-control"><button type="button" data-action="decrease" aria-label="Giảm số lượng">−</button><input id="quantity" type="number" min="1" max="10" step="1" value="${quantity}" inputmode="numeric" aria-describedby="quantity-error"><button type="button" data-action="increase" aria-label="Tăng số lượng">+</button></div></div><p class="form-error" id="quantity-error" hidden></p><div class="summary-total"><span>Tổng tiền</span><strong id="summary-total"></strong></div><button id="book-button" class="button button-primary button-full" data-action="book" type="button"></button><p class="booking-footnote">Yêu cầu được xếp hàng và xử lý theo thứ tự; vé được giữ cho bạn trong thời gian chờ thanh toán.</p></div></aside>
+    <div class="container detail-page"><div class="detail-grid"><div class="event-information"><section class="detail-heading"><p class="eyebrow">THÔNG TIN SỰ KIỆN</p>${saleBadge(concert)}<h2>${escape(eventTitle(concert))}</h2><div class="event-info-grid"><div><span>Nghệ sĩ</span><strong>${escape(eventArtist(concert))}</strong></div><div><span>Thời gian</span><strong>${escape(dateText(concert.start_time))}</strong></div><div><span>Địa điểm</span><strong>${escape(eventVenue(concert))}</strong></div><div><span>Thời gian mở bán</span><strong>${escape(dateText(concert.sale_open_time))}</strong></div></div></section><section class="event-about"><h2>Về sự kiện</h2><p>Thông tin giới thiệu chi tiết sẽ được cập nhật. Bạn có thể xem nghệ sĩ, thời gian và địa điểm diễn ở trên, chọn hạng vé và xác nhận đơn vé tại đây.</p>${poster(concert, 'detail-poster')}<p class="artwork-caption">HIT THE VIBE / Minh họa không khí đêm nhạc.</p></section><section class="booking-guide"><p class="eyebrow">TRƯỚC KHI ĐẶT VÉ</p><h2>Sẵn sàng cho đêm nhạc.</h2><ol><li>Chọn một hạng vé và số lượng (tối đa 10 vé mỗi lần).</li><li>Bấm “Đặt vé & thanh toán”: vé được giữ riêng cho bạn trong 12 phút và bạn được chuyển ngay tới cổng thanh toán.</li><li>Hoàn tất thanh toán trước khi hết giờ, nếu không vé tự động được trả lại kho.</li><li>Nhận vé kèm mã QR trong mục “Vé của tôi”.</li></ol></section></div>
+      <aside class="booking-panel" aria-labelledby="booking-title"><div class="booking-panel-header"><span class="eyebrow">YOUR TICKET TO THE MOMENT</span><h2 id="booking-title">Chọn vé của bạn</h2><p>Tối đa 10 vé mỗi lần · Giữ chỗ 12 phút để thanh toán</p></div><div id="sale-notice">${!isOpen(concert) ? `<div class="notice notice-info">Vé mở bán lúc ${escape(dateText(concert.sale_open_time))} (giờ Việt Nam).</div>` : ''}</div><div class="ticket-list" role="radiogroup" aria-label="Chọn hạng vé">${tickets.length ? tickets.map((ticket) => `<div class="ticket-option ${selected?.id === ticket.id ? 'is-selected' : ''}"><label class="ticket-option-label"><input type="radio" name="ticket" value="${ticket.id}" ${selected?.id === ticket.id ? 'checked' : ''} ${ticket.remaining <= 0 ? 'disabled' : ''}><span class="ticket-copy"><strong>${escape(ticket.name)}</strong><span class="ticket-stock">${ticket.remaining > 0 ? `Còn ${ticket.remaining.toLocaleString('vi-VN')} vé` : 'Đã hết vé'}</span></span></label><div class="ticket-option-bottom"><span class="ticket-price">${money(ticket.price)}</span>${rowQuantity(ticket, selected?.id, quantity)}</div></div>`).join('') : empty('Chưa có hạng vé', 'Thông tin vé sẽ được cập nhật sau.')}</div><div class="booking-summary"><div class="summary-row"><span>Hạng vé</span><strong id="summary-ticket"></strong></div><div class="summary-row"><span>Đơn giá</span><strong id="summary-price"></strong></div><div class="selected-quantity"><label for="quantity">Số lượng đã chọn</label><div class="quantity-control"><button type="button" data-action="decrease" aria-label="Giảm số lượng">−</button><input id="quantity" type="number" min="1" max="10" step="1" value="${quantity}" inputmode="numeric" aria-describedby="quantity-error"><button type="button" data-action="increase" aria-label="Tăng số lượng">+</button></div></div><p class="form-error" id="quantity-error" hidden></p><div class="summary-total"><span>Tổng tiền</span><strong id="summary-total"></strong></div><button id="book-button" class="button button-primary button-full" data-action="book" type="button"></button><p class="form-error" id="book-error" role="alert" hidden></p><p class="booking-footnote">Vé được giữ cho bạn 12 phút trong lúc thanh toán. Quá thời gian, vé tự động được trả lại kho.</p></div></aside>
     </div></div>`;
   syncBooking();
 }
@@ -252,7 +278,7 @@ function syncBooking() {
   badge.className = `badge ${open ? 'badge-success' : 'badge-muted'}`;
   const button = document.querySelector('#book-button');
   button.disabled = !valid || !open || !ticket;
-  button.textContent = !open ? 'Chưa đến thời gian mở bán' : !ticket ? 'Chưa có vé khả dụng' : getSession() ? 'Đặt vé ↗' : 'Đăng nhập để đặt vé ↗';
+  button.textContent = !open ? 'Chưa đến thời gian mở bán' : !ticket ? 'Chưa có vé khả dụng' : getSession() ? 'Đặt vé & thanh toán ↗' : 'Đăng nhập để đặt vé ↗';
   document.querySelector('[data-action="decrease"]').disabled = !ticket || quantity <= 1;
   document.querySelector('[data-action="increase"]').disabled = !ticket || quantity >= max;
   document.querySelectorAll('.ticket-option').forEach((row) => {
@@ -334,23 +360,44 @@ async function submitAuth(form) {
   }
 }
 
-async function renderOrders(version) {
-  const [ordersResult, concertsResult] = await Promise.allSettled([api.orders(), api.concerts()]);
-  if (version !== pageVersion) return;
-  if (ordersResult.status === 'rejected') throw ordersResult.reason;
-  const concerts = concertsResult.status === 'fulfilled' ? concertsResult.value : [];
-  let incomplete = concertsResult.status === 'rejected';
+// Bảng tra hạng vé → { ...hạng vé, concert } để hiện tên concert, giờ diễn cho từng đơn.
+async function loadTicketLookup() {
+  let incomplete = false;
+  let concerts = [];
+  try { concerts = await api.concerts(); } catch { incomplete = true; }
   const groups = await Promise.allSettled(concerts.map(async (concert) => ({ concert, tickets: await api.ticketTypes(concert.id) })));
-  if (version !== pageVersion) return;
-  ticketLookup = new Map();
+  const lookup = new Map();
   groups.forEach((result) => {
     if (result.status === 'rejected') { incomplete = true; return; }
-    result.value.tickets.forEach((ticket) => ticketLookup.set(ticket.id, { ...ticket, concert: result.value.concert }));
+    result.value.tickets.forEach((ticket) => lookup.set(ticket.id, { ...ticket, concert: result.value.concert }));
   });
-  orderData = ordersResult.value.sort((a, b) => date(b.created_at) - date(a.created_at) || b.id - a.id);
+  return { lookup, incomplete };
+}
+
+async function renderOrders(version) {
+  const [orders, { lookup, incomplete }] = await Promise.all([api.orders(), loadTicketLookup()]);
+  if (version !== pageVersion) return;
+  ticketLookup = lookup;
+  orderData = orders.sort((a, b) => date(b.created_at) - date(a.created_at) || b.id - a.id);
+  const options = Object.entries(ORDER_STATUS).map(([value, { label }]) => `<option value="${value}">${escape(label)}</option>`).join('');
   document.title = 'Đơn vé của tôi — HIT THE VIBE';
-  main.innerHTML = `<div class="container orders-page"><div class="page-heading"><p class="eyebrow">NHỮNG CUỘC HẸN SẮP TỚI</p><h1>Đơn vé của tôi</h1><p class="lead">Xem lại và quản lý vé concert của bạn tại đây.</p></div>${incomplete ? '<div class="notice notice-info">Chưa tải được một số tên concert hoặc hạng vé. <button class="button button-link button-small" data-action="retry">Thử lại</button></div>' : ''}<div class="toolbar"><label for="order-filter">Trạng thái đơn</label><select id="order-filter"><option value="all">Tất cả đơn vé</option><option value="confirmed">Đã xác nhận</option><option value="cancelled">Đã huỷ</option></select><button class="button button-secondary button-small" data-action="retry">Làm mới</button></div><div id="order-results"></div></div>`;
+  main.innerHTML = `<div class="container orders-page"><div class="page-heading"><p class="eyebrow">NHỮNG CUỘC HẸN SẮP TỚI</p><h1>Đơn vé của tôi</h1><p class="lead">Thanh toán đơn đang giữ chỗ, xem vé kèm mã QR hoặc huỷ đơn tại đây.</p></div>${incomplete ? '<div class="notice notice-info">Chưa tải được một số tên concert hoặc hạng vé. <button class="button button-link button-small" data-action="retry">Thử lại</button></div>' : ''}<div class="toolbar"><label for="order-filter">Trạng thái đơn</label><select id="order-filter"><option value="all">Tất cả đơn vé</option>${options}</select><button class="button button-secondary button-small" data-action="retry">Làm mới</button></div><div id="order-results"></div></div>`;
   renderOrderList();
+}
+
+// Các nút thao tác theo trạng thái đơn: giữ chỗ → thanh toán / huỷ giữ chỗ; đã thanh toán → xem vé / huỷ & hoàn tiền.
+function orderActions(order, concert, onDetail = false) {
+  const size = onDetail ? '' : ' button-small';
+  const actions = [];
+  if (!onDetail) actions.push(`<a class="button button-secondary${size}" href="#/orders/${order.id}">${order.status === 'paid' ? 'Xem vé QR' : 'Chi tiết đơn'}</a>`);
+  if (order.status === 'held') {
+    actions.push(`<button class="button button-danger${size}" data-action="cancel-order" data-id="${order.id}">Huỷ giữ chỗ</button>`);
+    actions.push(`<button class="button button-primary${size}" data-action="pay-order" data-id="${order.id}" data-expires="${escape(order.expires_at)}" ${holdActive(order) ? '' : 'disabled'}>Thanh toán ${money(order.total_amount)}</button>`);
+  }
+  if (order.status === 'paid' && refundOpen(order, concert)) {
+    actions.push(`<button class="button button-danger${size}" data-action="cancel-order" data-id="${order.id}">Huỷ vé &amp; hoàn tiền</button>`);
+  }
+  return actions.join('');
 }
 
 function renderOrderList() {
@@ -358,10 +405,212 @@ function renderOrderList() {
   const orders = orderData.filter((order) => filter === 'all' || order.status === filter);
   document.querySelector('#order-results').innerHTML = orders.length ? `<div class="order-list">${orders.map((order) => {
     const ticket = ticketLookup.get(order.ticket_type_id);
-    const confirmed = order.status === 'confirmed';
-    const status = confirmed ? 'Đã xác nhận' : order.status === 'cancelled' ? 'Đã huỷ' : order.status;
-    return `<article class="panel order-card"><div class="order-heading"><span class="order-number">ĐƠN #${order.id}</span><span class="badge ${confirmed ? 'badge-success' : 'badge-muted'}">${escape(status)}</span></div><h2>${escape(ticket?.concert.name || `Hạng vé #${order.ticket_type_id}`)}</h2><div class="order-details"><p><span>Hạng vé</span><strong>${escape(ticket?.name || `#${order.ticket_type_id}`)}</strong></p><p><span>Số lượng</span><strong>${order.quantity} vé</strong></p><p><span>Ngày đặt</span><strong>${escape(dateText(order.created_at))}</strong></p>${ticket ? `<p><span>Thời gian diễn</span><strong>${escape(dateText(ticket.concert.start_time))}</strong></p>` : ''}</div><div class="order-actions">${ticket ? `<a class="button button-secondary button-small" href="#/concerts/${ticket.concert.id}">Xem concert</a>` : ''}${confirmed ? `<button class="button button-danger button-small" data-action="cancel-order" data-id="${order.id}">Huỷ đơn</button>` : ''}</div></article>`;
+    const hold = order.status === 'held'
+      ? `<div class="order-hold">${countdown(order)}<span>Hoàn tất thanh toán trước khi hết giờ giữ chỗ.</span></div>`
+      : '';
+    return `<article class="panel order-card order-card-${escape(order.status)}"><div class="order-heading"><span class="order-number">ĐƠN #${order.id}</span>${statusBadge(order.status)}</div><h2><a class="order-title-link" href="#/orders/${order.id}">${escape(ticket?.concert.name || `Hạng vé #${order.ticket_type_id}`)}</a></h2>${hold}<div class="order-details"><p><span>Hạng vé</span><strong>${escape(ticket?.name || `#${order.ticket_type_id}`)}</strong></p><p><span>Số lượng</span><strong>${order.quantity} vé</strong></p><p><span>Tổng tiền</span><strong>${money(order.total_amount)}</strong></p><p><span>Ngày giữ chỗ</span><strong>${escape(dateText(order.created_at))}</strong></p>${ticket ? `<p><span>Thời gian diễn</span><strong>${escape(dateText(ticket.concert.start_time))}</strong></p>` : ''}</div><div class="order-actions">${orderActions(order, ticket?.concert)}</div></article>`;
   }).join('')}</div>` : empty(orderData.length ? 'Không có đơn ở trạng thái này' : 'Bạn chưa có đơn vé nào', 'Một đêm nhạc đáng nhớ đang chờ bạn.', '<a class="button button-primary" href="#/">Khám phá concert</a>');
+}
+
+// --- Trang chi tiết đơn: Chọn vé → Giữ chỗ (12 phút) → Thanh toán → Xuất vé QR / Hoàn kho ---
+
+function closeOrderView() {
+  orderView?.qrUrls.forEach((url) => URL.revokeObjectURL(url));
+  orderView = null;
+}
+
+async function renderOrderDetail(version, id) {
+  const [order, { lookup }] = await Promise.all([api.order(id), loadTicketLookup()]);
+  if (version !== pageVersion) return;
+  orderView = { order, ticket: lookup.get(order.ticket_type_id) || null, tickets: null, qrUrls: [], watching: false, expiredShown: false, version };
+  paintOrderView();
+  if (order.status === 'paid') loadOrderTickets(version);
+  // Đơn còn giữ chỗ (vừa quay về từ cổng mà webhook chưa tới, hoặc hết giờ mà server chưa kịp
+  // chuyển `expired`): theo dõi đến khi đơn đổi trạng thái.
+  if (order.status === 'held') watchOrder(version);
+}
+
+function orderSteps(order) {
+  const outcome = {
+    paid: ['Đã xuất vé QR', 'done'],
+    failed: ['Đã hoàn kho', 'stopped'],
+    expired: ['Đã hoàn kho', 'stopped'],
+    cancelled: ['Đã hoàn kho', 'stopped'],
+    refunded: ['Đã hoàn tiền & hoàn kho', 'stopped'],
+  }[order.status];
+  const paymentState = order.status === 'held' ? 'current'
+    : order.status === 'paid' || order.status === 'refunded' ? 'done'
+      : order.status === 'failed' ? 'stopped' : 'todo';
+  const steps = [
+    ['Chọn vé', `${order.quantity} vé · tối đa 10`, 'done'],
+    ['Giữ chỗ', `Khoá ${HOLD_MINUTES} phút`, 'done'],
+    ['Thanh toán', 'Cổng thanh toán bên thứ 3', paymentState],
+    ['Xuất vé / Hoàn kho', outcome ? outcome[0] : 'Chờ kết quả thanh toán', outcome ? outcome[1] : 'todo'],
+  ];
+  return `<ol class="order-steps" aria-label="Tiến trình đơn vé">${steps.map(([title, note, state], index) => `<li class="order-step step-${state}" ${state === 'current' ? 'aria-current="step"' : ''}><span class="step-index" aria-hidden="true">${state === 'done' ? '✓' : state === 'stopped' ? '×' : index + 1}</span><span class="step-copy"><strong>${escape(title)}</strong><span>${escape(note)}</span></span></li>`).join('')}</ol>`;
+}
+
+function orderPanel(order, concert) {
+  const total = money(order.total_amount);
+  const again = concert ? `<a class="button button-secondary" href="#/concerts/${concert.id}">Đặt lại vé</a>` : '';
+  if (order.status === 'held') {
+    if (!holdActive(order)) {
+      return `<p class="eyebrow">GIỮ CHỖ</p><h2>Hết thời gian giữ chỗ</h2><p>Vé đang được trả lại kho. Trang sẽ tự cập nhật trong giây lát.</p>`;
+    }
+    return `<p class="eyebrow">VÉ ĐANG ĐƯỢC GIỮ CHO BẠN</p>${countdown(order, 'countdown-large')}<p>Số vé này đã được trừ tạm khỏi kho và khoá riêng cho bạn. Hoàn tất thanh toán trước khi hết giờ; quá hạn, vé sẽ tự động được trả lại kho. Nếu bạn vừa thanh toán xong, trang sẽ tự cập nhật khi cổng thanh toán báo kết quả.</p><div class="order-panel-actions">${orderActions(order, concert, true)}</div>`;
+  }
+  if (order.status === 'paid') {
+    const refund = refundOpen(order, concert)
+      ? `<div class="order-panel-actions">${orderActions(order, concert, true)}</div><p class="field-hint">Huỷ vé được hoàn toàn bộ tiền nếu còn cách giờ diễn ít nhất ${REFUND_CUTOFF_HOURS} giờ.</p>`
+      : `<p class="field-hint">Đã quá hạn huỷ vé: chỉ huỷ và hoàn tiền được trước giờ diễn ít nhất ${REFUND_CUTOFF_HOURS} giờ.</p>`;
+    return `<p class="eyebrow">ĐÃ CHỐT ĐƠN</p><h2>Thanh toán thành công</h2><p>Đã thanh toán <strong>${total}</strong> lúc ${escape(dateText(order.paid_at))}. Vé và mã QR ở bên dưới — xuất trình mã QR khi vào cổng.</p>${refund}`;
+  }
+  const outcomes = {
+    failed: ['Thanh toán không thành công', 'Cổng thanh toán báo giao dịch không thành công. Vé đã được hoàn về kho và bạn không bị trừ tiền.'],
+    expired: ['Hết thời gian giữ chỗ', `Đơn đã quá ${HOLD_MINUTES} phút mà chưa thanh toán nên vé đã được trả lại kho.`],
+    cancelled: ['Đã huỷ giữ chỗ', 'Bạn đã huỷ đơn khi chưa thanh toán. Vé đã được trả lại kho. Nếu bạn đã lỡ trả tiền ở cổng thanh toán, hệ thống sẽ tự động hoàn lại.'],
+    refunded: ['Đã huỷ vé và hoàn tiền', `${total} được hoàn về phương thức thanh toán ban đầu. Mã QR của các vé đã bị vô hiệu và vé đã được trả lại kho.`],
+  };
+  const [title, text] = outcomes[order.status] || ['Trạng thái đơn', order.status];
+  return `<p class="eyebrow">KẾT QUẢ</p><h2>${escape(title)}</h2><p>${escape(text)}</p><div class="order-panel-actions">${again}</div>`;
+}
+
+function ticketCards() {
+  const { tickets } = orderView;
+  if (tickets === null) return '<div class="loading-state" role="status"><span class="spinner" aria-hidden="true"></span><p>Đang tải vé…</p></div>';
+  if (tickets instanceof Error) return `<div class="notice notice-error">${escape(tickets.message)} <button class="button button-link button-small" data-action="reload-tickets">Thử lại</button></div>`;
+  if (!tickets.length) return empty('Chưa có vé', 'Vé của đơn này chưa được xuất.');
+  return `<div class="ticket-grid">${tickets.map((ticket, index) => `<article class="ticket-card"><div class="ticket-card-qr">${ticket.qrUrl ? `<img src="${ticket.qrUrl}" alt="Mã QR vé ghế ${escape(ticket.seat_no)}" width="168" height="168">` : '<span>Chưa tải được mã QR</span>'}</div><div class="ticket-card-info"><span class="order-number">VÉ ${index + 1}/${tickets.length}</span><span>Số ghế</span><strong>${escape(ticket.seat_no)}</strong><code title="Nội dung mã QR">${escape(ticket.qr_code || '')}</code></div></article>`).join('')}</div>`;
+}
+
+function paintOrderView() {
+  if (!orderView) return;
+  const { order, ticket } = orderView;
+  const concert = ticket?.concert;
+  document.title = `Đơn #${order.id} — HIT THE VIBE`;
+  const details = [
+    ['Hạng vé', ticket?.name || `#${order.ticket_type_id}`],
+    ['Số lượng', `${order.quantity} vé`],
+    ['Đơn giá', money(order.unit_price)],
+    ['Tổng tiền', money(order.total_amount)],
+    ['Thời điểm giữ chỗ', dateText(order.created_at)],
+    ...(order.status === 'held' ? [['Giữ chỗ đến', dateText(order.expires_at, { second: '2-digit' })]] : []),
+    ...(concert ? [['Thời gian diễn', dateText(concert.start_time)], ['Địa điểm', eventVenue(concert)]] : []),
+  ];
+  main.innerHTML = `<div class="container order-page"><a class="order-back" href="#/my-orders">← Vé của tôi</a><div class="page-heading order-page-heading"><p class="eyebrow">ĐƠN #${order.id}</p><h1>${escape(concert?.name || `Hạng vé #${order.ticket_type_id}`)}</h1>${statusBadge(order.status)}</div>${orderSteps(order)}<div class="order-page-grid"><section class="panel order-summary" aria-labelledby="order-summary-title"><h2 id="order-summary-title">Chi tiết đơn</h2><div class="order-details">${details.map(([label, value]) => `<p><span>${escape(label)}</span><strong>${escape(value)}</strong></p>`).join('')}</div></section><section class="panel order-panel order-panel-${escape(order.status)}" aria-live="polite">${orderPanel(order, concert)}</section></div>${order.status === 'paid' ? `<section class="order-tickets" aria-labelledby="tickets-title"><h2 id="tickets-title">Vé của bạn</h2><div id="ticket-results">${ticketCards()}</div></section>` : ''}</div>`;
+}
+
+async function loadOrderTickets(version) {
+  const view = orderView;
+  if (!view) return;
+  try {
+    const tickets = await api.orderTickets(view.order.id);
+    const withQr = await Promise.all(tickets.map(async (ticket) => {
+      if (!ticket.qr_code) return { ...ticket, qrUrl: null };
+      try {
+        const url = URL.createObjectURL(await api.ticketQr(view.order.id, ticket.id));
+        view.qrUrls.push(url);
+        return { ...ticket, qrUrl: url };
+      } catch {
+        return { ...ticket, qrUrl: null };
+      }
+    }));
+    if (orderView !== view || version !== pageVersion) {
+      view.qrUrls.forEach((url) => URL.revokeObjectURL(url));
+      return;
+    }
+    view.tickets = withQr;
+  } catch (error) {
+    if (orderView !== view) return;
+    view.tickets = error;
+  }
+  const container = document.querySelector('#ticket-results');
+  if (container) container.innerHTML = ticketCards();
+}
+
+// Hỏi trạng thái đơn định kỳ đến khi nó rời `held` (cổng thanh toán đã phản hồi, hoặc đơn hết hạn).
+function watchOrder(version) {
+  const view = orderView;
+  if (!view || view.watching) return;
+  view.watching = true;
+  const tick = async () => {
+    if (orderView !== view || version !== pageVersion) return;
+    try {
+      const fresh = await api.order(view.order.id);
+      if (orderView !== view || version !== pageVersion) return;
+      if (fresh.status !== view.order.status) {
+        view.watching = false;
+        view.order = fresh;
+        onOrderSettled(view, version);
+        return;
+      }
+    } catch (error) {
+      if (error.code !== 'NetworkError') { view.watching = false; return; }
+    }
+    setTimeout(tick, ORDER_POLL_MS);
+  };
+  setTimeout(tick, ORDER_POLL_MS);
+}
+
+function onOrderSettled(view, version) {
+  paintOrderView();
+  const outcome = {
+    paid: ['Thanh toán thành công! Vé và mã QR của bạn đã được xuất.', 'success'],
+    failed: ['Thanh toán không thành công. Vé đã được hoàn về kho.', 'error'],
+    expired: ['Hết thời gian giữ chỗ. Vé đã được trả lại kho.', 'info'],
+    cancelled: ['Đơn đã được huỷ. Vé đã được trả lại kho.', 'info'],
+  }[view.order.status];
+  if (outcome) showNotice(...outcome);
+  if (view.order.status === 'paid') loadOrderTickets(version);
+}
+
+// Đồng hồ giữ chỗ: cập nhật mỗi giây mọi bộ đếm đang hiển thị.
+function updateCountdowns() {
+  document.querySelectorAll('[data-countdown]').forEach((element) => {
+    const left = secondsLeft(element.dataset.countdown);
+    element.textContent = clockText(left);
+    const box = element.closest('.countdown');
+    box?.classList.toggle('is-urgent', left > 0 && left <= 120);
+    box?.classList.toggle('is-over', left === 0);
+  });
+  document.querySelectorAll('[data-action="pay-order"][data-expires]').forEach((button) => {
+    if (secondsLeft(button.dataset.expires) === 0) button.disabled = true;
+  });
+  // Trang chi tiết hết giờ: báo cho người dùng và chờ server chuyển đơn sang `expired`.
+  if (orderView?.order.status === 'held' && !holdActive(orderView.order) && !orderView.expiredShown) {
+    orderView.expiredShown = true;
+    paintOrderView();
+    watchOrder(orderView.version);
+  }
+}
+
+function findOrder(id) {
+  if (orderView?.order.id === id) return { order: orderView.order, concert: orderView.ticket?.concert };
+  const order = orderData.find((item) => item.id === id);
+  return { order, concert: order && ticketLookup.get(order.ticket_type_id)?.concert };
+}
+
+// Chuyển sang trang của cổng thanh toán ngay trong tab này (như web đặt vé xem phim).
+// Thanh toán xong, cổng đưa khách về lại trang đơn #/orders/{id}.
+function goToGateway(payment) {
+  window.location.assign(payment.payment_url);
+}
+
+// Thanh toán đơn đang giữ chỗ (từ trang đơn hoặc "Vé của tôi"): gọi lại khi đã có giao dịch
+// đang chờ thì server trả lại đúng giao dịch cũ, nên bấm nhiều lần cũng không trừ tiền hai lần.
+function payOrder(id) {
+  const { order } = findOrder(id);
+  if (!order || !holdActive(order) || mutationBusy) return;
+  mutationBusy = true;
+  document.querySelectorAll(`[data-action="pay-order"][data-id="${id}"]`).forEach((button) => {
+    button.disabled = true;
+    button.textContent = 'Đang chuyển tới cổng thanh toán…';
+  });
+  api.payOrder(id).then(goToGateway).catch(async (error) => {
+    mutationBusy = false;
+    showNotice(error.message, 'error');
+    await renderRoute();
+  });
 }
 
 function openConfirmation({ title, content, label, danger = false, action }) {
@@ -378,80 +627,120 @@ function openConfirmation({ title, content, label, danger = false, action }) {
   cancelButton.focus();
 }
 
-function bookTicket() {
-  if (!detail || document.querySelector('#book-button').disabled) return;
+// Đặt vé một bước, không hộp xác nhận: giữ chỗ (12 phút) → tạo giao dịch → chuyển ngay tới cổng
+// thanh toán. Thông tin đơn (hạng vé, số lượng, tổng tiền) đã hiện sẵn trong khung chọn vé.
+async function bookTicket() {
+  if (!detail || mutationBusy || document.querySelector('#book-button').disabled) return;
   if (!getSession()) {
     navigate(`/login?next=${encodeURIComponent(path())}`);
-    showNotice('Đăng nhập để tiếp tục đặt vé. Lựa chọn của bạn đã được giữ lại.');
+    showNotice('Đăng nhập để tiếp tục giữ chỗ. Lựa chọn của bạn đã được giữ lại.');
     return;
   }
   const { concert } = detail;
   const ticket = detail.tickets.find((item) => item.id === detail.selectedId);
   const quantity = Number(document.querySelector('#quantity').value);
-  openConfirmation({ title: 'Xác nhận đặt vé', label: 'Xác nhận đặt vé', content: `<p>${escape(concert.name)}</p><div class="summary-row"><span>${escape(ticket.name)} × ${quantity}</span><strong>${money(Number(ticket.price) * quantity)}</strong></div><p class="field-hint">Yêu cầu sẽ được xếp hàng; vui lòng chờ trong giây lát để hệ thống giữ chỗ.</p>`, action: async () => {
-    const user = getSession()?.email;
-    if (pendingBooking?.user !== user || pendingBooking.ticketId !== ticket.id || pendingBooking.quantity !== quantity) {
-      pendingBooking = { user, ticketId: ticket.id, quantity, key: newIdempotencyKey() };
-    }
-    const { key } = pendingBooking;
-    try {
-      let orderRequest;
-      for (let attempt = 0; ; attempt += 1) {
-        try {
-          orderRequest = await api.createOrder({ ticket_type_id: ticket.id, quantity }, key);
-          break;
-        } catch (error) {
-          // Retry an toàn vì dùng lại cùng khoá: server trả lại đúng yêu cầu đã xếp hàng.
-          if (error.code !== 'NetworkError' || attempt >= BOOKING_RETRIES) throw error;
-          await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
-        }
+  const user = getSession()?.email;
+  if (pendingBooking?.user !== user || pendingBooking.ticketId !== ticket.id || pendingBooking.quantity !== quantity) {
+    pendingBooking = { user, ticketId: ticket.id, quantity, key: newIdempotencyKey() };
+  }
+  const { key } = pendingBooking;
+  const button = document.querySelector('#book-button');
+  // Lỗi hiện ngay dưới nút (người dùng đang nhìn ở đây), không chỉ ở thông báo đầu trang.
+  // Tìm lại phần tử mỗi lần vì khung đặt vé có thể vừa được vẽ lại.
+  const showBookError = (message) => {
+    const element = document.querySelector('#book-error');
+    if (!element) { showNotice(message, 'error'); return; }
+    element.textContent = message;
+    element.hidden = false;
+  };
+  document.querySelector('#book-error').hidden = true;
+  mutationBusy = true;
+  button.disabled = true;
+  button.textContent = 'Đang giữ chỗ cho bạn…';
+
+  let order;
+  try {
+    let orderRequest;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        orderRequest = await api.createOrder({ ticket_type_id: ticket.id, quantity }, key);
+        break;
+      } catch (error) {
+        // Retry an toàn vì dùng lại cùng khoá: server trả lại đúng yêu cầu đã xếp hàng.
+        if (error.code !== 'NetworkError' || attempt >= BOOKING_RETRIES) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
       }
-      // Yêu cầu đã vào hàng đợi; chờ worker giữ chỗ xong (hỏi trạng thái định kỳ).
-      const order = await api.waitForOrder(orderRequest);
-      if (pendingBooking?.key === key) pendingBooking = null;
-      drafts.delete(concert.id);
-      dialog.close();
-      navigate('/my-orders');
-      showNotice(`Giữ chỗ thành công! Đơn #${order.id} đang chờ thanh toán.`, 'success');
-    } catch (error) {
-      // Lỗi mạng hoặc yêu cầu còn đang chờ xử lý: GIỮ pendingBooking để lần bấm đặt lại dùng
-      // cùng khoá (server trả lại đúng yêu cầu cũ). Lỗi khác là kết quả chắc chắn nên lần sau
-      // dùng khoá mới.
-      const unresolved = error.code === 'NetworkError' || error.code === 'OrderPending';
-      if (!unresolved && pendingBooking?.key === key) pendingBooking = null;
-      if (error.code === 'OrderPending') {
-        dialog.close();
-        navigate('/my-orders');
-        showNotice(error.message, 'info');
-      } else if (error.code === 'SoldOut' || error.code === 'SaleNotOpen') {
-        dialog.close();
-        await renderRoute();
-        showNotice(error.message, 'error');
-      } else if (error.code === 'NetworkError') {
-        dialog.close();
-        showNotice('Kết nối đang gián đoạn nên chưa xác nhận được đơn. Bạn có thể bấm “Đặt vé” lại — hệ thống sẽ không tạo đơn trùng.', 'error');
-      } else throw error;
     }
-  } });
+    // Yêu cầu đã vào hàng đợi; chờ worker giữ chỗ xong (hỏi trạng thái định kỳ).
+    order = await api.waitForOrder(orderRequest);
+    if (pendingBooking?.key === key) pendingBooking = null;
+    drafts.delete(concert.id);
+  } catch (error) {
+    mutationBusy = false;
+    // Lỗi mạng hoặc yêu cầu còn đang chờ xử lý: GIỮ pendingBooking để lần bấm lại dùng cùng
+    // khoá (server trả lại đúng yêu cầu cũ). Lỗi khác là kết quả chắc chắn nên lần sau dùng khoá mới.
+    const unresolved = error.code === 'NetworkError' || error.code === 'OrderPending';
+    if (!unresolved && pendingBooking?.key === key) pendingBooking = null;
+    if (error.code === 'OrderPending') {
+      navigate('/my-orders');
+      showNotice(error.message, 'info');
+    } else if (error.code === 'SoldOut' || error.code === 'SaleNotOpen') {
+      await renderRoute(); // tải lại số vé còn
+      showBookError(error.message);
+    } else {
+      if (detail) syncBooking();
+      showBookError(error.code === 'NetworkError'
+        ? 'Kết nối đang gián đoạn nên chưa xác nhận được việc đặt vé. Bạn có thể bấm đặt vé lại — hệ thống sẽ không tạo đơn trùng.'
+        : error.message);
+    }
+    return;
+  }
+
+  // Đã giữ chỗ: tạo giao dịch và chuyển ngay tới cổng thanh toán.
+  button.textContent = 'Đang chuyển tới cổng thanh toán…';
+  try {
+    goToGateway(await api.payOrder(order.id));
+  } catch (error) {
+    mutationBusy = false;
+    navigate(`/orders/${order.id}`);
+    showNotice(`Đã giữ chỗ đơn #${order.id} nhưng chưa mở được cổng thanh toán (${error.message}) Bạn có thể bấm “Thanh toán” trước khi hết ${HOLD_MINUTES} phút giữ chỗ.`, 'error');
+  }
 }
 
+// Huỷ đơn có hai trường hợp:
+//  1. Đang giữ chỗ, chưa trả tiền → huỷ giữ chỗ, vé về kho, không trừ tiền.
+//  2. Đã thanh toán → huỷ vé, mã QR bị vô hiệu, hoàn toàn bộ tiền (chỉ trước giờ diễn REFUND_CUTOFF_HOURS).
+// Cả hai đều gọi DELETE /orders/{id}; server tự chọn nhánh theo trạng thái đơn.
 function cancelOrder(id) {
-  const order = orderData.find((item) => item.id === id);
-  if (!order || order.status !== 'confirmed') return;
-  openConfirmation({ title: `Huỷ đơn #${id}?`, label: 'Xác nhận huỷ', danger: true, content: `<p>Bạn muốn huỷ đơn gồm ${order.quantity} vé? Số vé này sẽ được trả lại để người khác có thể đặt.</p>`, action: async () => {
-    try {
-      await api.cancelOrder(id);
-      dialog.close();
-      await renderRoute();
-      showNotice(`Đã huỷ đơn #${id}.`, 'success');
-    } catch (error) {
-      if (error.code === 'InvalidState' || error.code === 'NetworkError') {
+  const { order, concert } = findOrder(id);
+  if (!order) return;
+  const paid = order.status === 'paid';
+  if (order.status !== 'held' && !(paid && refundOpen(order, concert))) return;
+  const content = paid
+    ? `<p>Bạn muốn huỷ ${order.quantity} vé của đơn #${id}?</p><ul class="cancel-effects"><li>Mã QR của các vé bị vô hiệu ngay, không dùng để vào cổng được nữa.</li><li>Hoàn toàn bộ <strong>${money(order.total_amount)}</strong> về phương thức thanh toán ban đầu.</li><li>Vé được trả lại kho cho người khác đặt.</li></ul>`
+    : `<p>Bạn muốn huỷ giữ chỗ ${order.quantity} vé của đơn #${id}?</p><ul class="cancel-effects"><li>Vé được trả lại kho ngay, bạn không bị trừ tiền.</li><li>Nếu bạn đã trả tiền ở cổng thanh toán, hệ thống sẽ tự động hoàn lại.</li></ul>`;
+  openConfirmation({
+    title: paid ? `Huỷ vé & hoàn tiền đơn #${id}?` : `Huỷ giữ chỗ đơn #${id}?`,
+    label: paid ? 'Huỷ vé & hoàn tiền' : 'Huỷ giữ chỗ',
+    danger: true,
+    content,
+    action: async () => {
+      try {
+        await api.cancelOrder(id);
         dialog.close();
         await renderRoute();
-        showNotice(error.code === 'NetworkError' ? 'Kết nối gián đoạn. Kiểm tra trạng thái đơn trước khi huỷ lại.' : error.message, 'error');
-      } else throw error;
-    }
-  } });
+        showNotice(paid
+          ? `Đã huỷ đơn #${id}. ${money(order.total_amount)} sẽ được hoàn về phương thức thanh toán ban đầu.`
+          : `Đã huỷ giữ chỗ đơn #${id}. Vé đã được trả lại kho.`, 'success');
+      } catch (error) {
+        if (['InvalidState', 'RefundWindowClosed', 'NetworkError'].includes(error.code)) {
+          dialog.close();
+          await renderRoute();
+          showNotice(error.code === 'NetworkError' ? 'Kết nối gián đoạn. Kiểm tra trạng thái đơn trước khi huỷ lại.' : error.message, 'error');
+        } else throw error;
+      }
+    },
+  });
 }
 
 confirmButton.addEventListener('click', async () => {
@@ -563,6 +852,7 @@ document.addEventListener('click', (event) => {
     orderData = [];
     ticketLookup.clear();
     drafts.clear();
+    closeOrderView();
     navigate('/');
     showNotice('Bạn đã đăng xuất.');
   }
@@ -592,6 +882,12 @@ document.addEventListener('click', (event) => {
   }
   if (action === 'book') bookTicket();
   if (action === 'cancel-order') cancelOrder(Number(button.dataset.id));
+  if (action === 'pay-order') payOrder(Number(button.dataset.id));
+  if (action === 'reload-tickets' && orderView) {
+    orderView.tickets = null;
+    document.querySelector('#ticket-results').innerHTML = ticketCards();
+    loadOrderTickets(orderView.version);
+  }
 });
 
 document.addEventListener('input', (event) => {
@@ -652,6 +948,14 @@ window.addEventListener('session-expired', () => {
   navigate(`/login?next=${encodeURIComponent(safeNext(path()))}`);
   showNotice('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', 'error');
 });
+// Bấm "Quay lại" từ cổng thanh toán: trình duyệt có thể khôi phục trang từ bộ nhớ đệm (bfcache)
+// với các nút còn đang khoá. Mở khoá và tải lại trạng thái đơn.
+window.addEventListener('pageshow', (event) => {
+  if (!event.persisted) return;
+  mutationBusy = false;
+  renderRoute();
+});
+setInterval(updateCountdowns, 1000);
 setInterval(() => {
   if (detail) syncBooking();
   else if ((path() === '/' || path() === '/concerts') && document.querySelector('#concert-results')) renderConcertList();
