@@ -28,12 +28,17 @@ class ExpiredHold(Protocol):
 class TicketTypeRecord(Protocol):
     id: int
     concert_id: int
+    name: str
     price: Decimal
+    total_quantity: int
     remaining: int
 
 
 class ConcertRecord(Protocol):
     id: int
+    name: str
+    artist: str | None
+    venue: str | None
     sale_open_time: datetime
     start_time: datetime
 
@@ -93,6 +98,7 @@ class Orders(Protocol):
 
 class TicketTypes(Protocol):
     def get_by_id(self, ticket_type_id: int) -> TicketTypeRecord | None: ...
+    def list_by_concert(self, concert_id: int) -> list[TicketTypeRecord]: ...
     def reserve(self, ticket_type_id: int, quantity: int) -> bool: ...
     def release(self, ticket_type_id: int, quantity: int) -> None: ...
 
@@ -106,6 +112,8 @@ class Tickets(Protocol):
 
 class Concerts(Protocol):
     def get_by_id(self, concert_id: int) -> ConcertRecord | None: ...
+    def list_all(self) -> list[ConcertRecord]: ...
+    def list_on_sale(self, now: datetime) -> list[ConcertRecord]: ...
 
 
 class Transactions(Protocol):

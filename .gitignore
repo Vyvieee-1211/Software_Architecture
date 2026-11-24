@@ -8,3 +8,4 @@ __pycache__/
 data/
 *.zip
 loadtest/inventory_check_*.csv
+loadtest/results/

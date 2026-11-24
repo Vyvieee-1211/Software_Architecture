@@ -1,0 +1,48 @@
+{
+  "scenario": "S2",
+  "status": "FAIL",
+  "http_requests": 4863,
+  "http_failures": 2545,
+  "failure_ratio": 0.5233395023647954,
+  "counters": {
+    "queued": 455,
+    "held": 192,
+    "flash_quantity": 500,
+    "SoldOut": 263
+  },
+  "inventory_ok": true,
+  "inventory_error": null,
+  "metrics": {
+    "POST /orders [POST flash]": {
+      "count": 3000,
+      "p50_ms": 2625.473100000818,
+      "p95_ms": 4520.024299999932,
+      "p99_ms": 7045.300600000701
+    },
+    "QUEUE order request end-to-end": {
+      "count": 455,
+      "p50_ms": 10662.270400000125,
+      "p95_ms": 14969.320799999878,
+      "p99_ms": 16000.674599999911
+    },
+    "GET /orders/requests/{id} [GET]": {
+      "count": 1863,
+      "p50_ms": 861.0092999997505,
+      "p95_ms": 1544.6492999999464,
+      "p99_ms": 1630.9009000005972
+    }
+  },
+  "scenario_checks": {
+    "checks": {
+      "no_duplicate_transaction_events": true,
+      "flash_exactly_500_held_no_paid": true
+    },
+    "evidence": {
+      "flash_held_quantity": 500,
+      "flash_paid_quantity": 0
+    },
+    "conventions": "RAM: so trung vị 5 phút đầu/cuối, tăng <=20% là ổn định quan sát; kết nối: chênh <=2. Đây là quy ước đo, không chứng minh tuyệt đối không leak."
+  },
+  "scope": "Đánh giá tự động một phần; xem README để đối chiếu đầy đủ tiêu chí notebook.",
+  "note": "Đối chiếu scenario_checks.json; thiếu bằng chứng không được tính PASS. Kết luận S9 nằm trong báo cáo ma trận tổng hợp."
+}

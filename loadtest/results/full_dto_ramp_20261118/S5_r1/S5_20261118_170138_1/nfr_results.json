@@ -1,0 +1,58 @@
+{
+  "scenario": "S5",
+  "status": "FAIL",
+  "http_requests": 17908,
+  "http_failures": 2517,
+  "failure_ratio": 0.1405517087335269,
+  "counters": {
+    "queued": 3017,
+    "replayed": 5236,
+    "verify_fail": 476,
+    "verify_ok": 2541,
+    "cancel_cancelled": 2987
+  },
+  "inventory_ok": true,
+  "inventory_error": null,
+  "metrics": {
+    "POST /orders [POST retry x3]": {
+      "count": 10420,
+      "p50_ms": 4481.624000000011,
+      "p95_ms": 8203.829399999904,
+      "p99_ms": 9161.28209999988
+    },
+    "VERIFY retry x3 same request, one fresh": {
+      "count": 2910,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "GET /orders/requests/{id} [GET]": {
+      "count": 4977,
+      "p50_ms": 4139.8982000000615,
+      "p95_ms": 4750.142799999594,
+      "p99_ms": 6793.660599999839
+    },
+    "QUEUE order request end-to-end": {
+      "count": 2664,
+      "p50_ms": 9537.529499999891,
+      "p95_ms": 12880.380399999922,
+      "p99_ms": 13493.800300000203
+    },
+    "DELETE /orders/{id} [DELETE]": {
+      "count": 2511,
+      "p50_ms": 6341.5829000000485,
+      "p95_ms": 6966.271400000096,
+      "p99_ms": 7125.747600000068
+    }
+  },
+  "scenario_checks": {
+    "checks": {
+      "no_duplicate_transaction_events": true,
+      "idempotency_one_order_per_key_and_request": true
+    },
+    "evidence": {},
+    "conventions": "RAM: so trung vị 5 phút đầu/cuối, tăng <=20% là ổn định quan sát; kết nối: chênh <=2. Đây là quy ước đo, không chứng minh tuyệt đối không leak."
+  },
+  "scope": "Đánh giá tự động một phần; xem README để đối chiếu đầy đủ tiêu chí notebook.",
+  "note": "Đối chiếu scenario_checks.json; thiếu bằng chứng không được tính PASS. Kết luận S9 nằm trong báo cáo ma trận tổng hợp."
+}

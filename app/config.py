@@ -40,7 +40,7 @@ JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me-please-use-32-bytes-o
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 
 # Waiting limits, not an end-to-end HTTP request deadline.
-DB_POOL_SIZE = _number("DB_POOL_SIZE", 5, int, 1)
+DB_POOL_SIZE = _number("DB_POOL_SIZE", 20, int, 1)
 DB_MAX_OVERFLOW = _number("DB_MAX_OVERFLOW", 10, int, 0)
 DB_POOL_TIMEOUT_SECONDS = _number("DB_POOL_TIMEOUT_SECONDS", 2, float, 0.01)
 DB_SQLITE_BUSY_TIMEOUT_SECONDS = _number("DB_SQLITE_BUSY_TIMEOUT_SECONDS", 1, float, 0.01)
@@ -52,6 +52,10 @@ DB_BREAKER_WINDOW_SECONDS = _number("DB_BREAKER_WINDOW_SECONDS", 30, float, 0.01
 DB_BREAKER_RECOVERY_SECONDS = _number("DB_BREAKER_RECOVERY_SECONDS", 10, float, 0.01)
 
 ADMIN_EMAILS = frozenset(email.strip().lower() for email in os.getenv("ADMIN_EMAILS", "demo@example.com").split(",") if email.strip())
+
+# Cache-Aside cho danh sách concert/hạng vé (giây). Số vé còn lại hiển thị có thể cũ tối đa
+# chừng này; đặt mua vẫn kiểm tra kho trong DB. 0 = tắt cache, mọi lần đọc vào DB.
+CATALOG_CACHE_TTL_SECONDS = _number("CATALOG_CACHE_TTL_SECONDS", 2, float, 0)
 
 # --- Giữ chỗ / thanh toán -------------------------------------------------
 # Thời gian giữ vé chờ thanh toán; quá hạn thì đơn hết hạn và vé được trả về kho.

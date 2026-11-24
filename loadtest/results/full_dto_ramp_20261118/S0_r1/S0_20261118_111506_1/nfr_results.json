@@ -1,0 +1,85 @@
+{
+  "scenario": "S0",
+  "status": "PASS",
+  "http_requests": 2235,
+  "http_failures": 0,
+  "failure_ratio": 0.0,
+  "counters": {
+    "queued": 324,
+    "held": 324,
+    "webhook_paid": 324,
+    "verify_ok": 648,
+    "cancel_refunded": 324
+  },
+  "inventory_ok": true,
+  "inventory_error": null,
+  "metrics": {
+    "GET /concerts": {
+      "count": 322,
+      "p50_ms": 8.27339999977994,
+      "p95_ms": 13.710799999898882,
+      "p99_ms": 50.53870000028837
+    },
+    "POST /orders [POST]": {
+      "count": 322,
+      "p50_ms": 22.064999999201973,
+      "p95_ms": 36.58240000004298,
+      "p99_ms": 80.6259000000864
+    },
+    "QUEUE order request end-to-end": {
+      "count": 319,
+      "p50_ms": 544.323400000394,
+      "p95_ms": 564.9864999995771,
+      "p99_ms": 625.8703000003152
+    },
+    "GET /orders/requests/{id} [GET]": {
+      "count": 319,
+      "p50_ms": 15.559500000563276,
+      "p95_ms": 23.28269999998156,
+      "p99_ms": 45.10239999945043
+    },
+    "POST /orders/{id}/pay [POST]": {
+      "count": 319,
+      "p50_ms": 21.524099999624013,
+      "p95_ms": 35.35250000004453,
+      "p99_ms": 73.78779999999097
+    },
+    "POST /mock-gateway/pay [POST]": {
+      "count": 318,
+      "p50_ms": 18.920600000456034,
+      "p95_ms": 33.19999999985157,
+      "p99_ms": 71.06610000028013
+    },
+    "VERIFY smoke payment": {
+      "count": 318,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "VERIFY issued tickets and QR": {
+      "count": 318,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "GET /orders/{id}/tickets [GET]": {
+      "count": 318,
+      "p50_ms": 14.353900000060094,
+      "p95_ms": 23.134599999139027,
+      "p99_ms": 58.519000000160304
+    },
+    "DELETE /orders/{id} [DELETE]": {
+      "count": 317,
+      "p50_ms": 39.39059999993333,
+      "p95_ms": 62.660699999469216,
+      "p99_ms": 118.59189999995579
+    }
+  },
+  "scenario_checks": {
+    "checks": {},
+    "evidence": {},
+    "conventions": "RAM: so trung vị 5 phút đầu/cuối, tăng <=20% là ổn định quan sát; kết nối: chênh <=2. Đây là quy ước đo, không chứng minh tuyệt đối không leak."
+  },
+  "scope": "Đánh giá tự động một phần; xem README để đối chiếu đầy đủ tiêu chí notebook.",
+  "note": "Đối chiếu scenario_checks.json; thiếu bằng chứng không được tính PASS. Kết luận S9 nằm trong báo cáo ma trận tổng hợp."
+}

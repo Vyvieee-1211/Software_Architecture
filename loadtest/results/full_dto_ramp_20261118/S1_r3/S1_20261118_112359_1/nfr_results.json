@@ -1,0 +1,31 @@
+{
+  "scenario": "S1",
+  "status": "FAIL",
+  "http_requests": 42344,
+  "http_failures": 35,
+  "failure_ratio": 0.0008265633856036275,
+  "counters": {},
+  "inventory_ok": true,
+  "inventory_error": null,
+  "metrics": {
+    "GET /concerts/{id}/ticket-types": {
+      "count": 18102,
+      "p50_ms": 6663.697099999808,
+      "p95_ms": 7711.6815999997925,
+      "p99_ms": 7973.730400000022
+    },
+    "GET /concerts": {
+      "count": 24242,
+      "p50_ms": 6662.421600000016,
+      "p95_ms": 7712.674600000355,
+      "p99_ms": 8028.570599999512
+    }
+  },
+  "scenario_checks": {
+    "checks": {},
+    "evidence": {},
+    "conventions": "RAM: so trung vị 5 phút đầu/cuối, tăng <=20% là ổn định quan sát; kết nối: chênh <=2. Đây là quy ước đo, không chứng minh tuyệt đối không leak."
+  },
+  "scope": "Đánh giá tự động một phần; xem README để đối chiếu đầy đủ tiêu chí notebook.",
+  "note": "Đối chiếu scenario_checks.json; thiếu bằng chứng không được tính PASS. Kết luận S9 nằm trong báo cáo ma trận tổng hợp."
+}

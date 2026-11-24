@@ -1,0 +1,66 @@
+{
+  "scenario": "S4",
+  "status": "FAIL",
+  "http_requests": 16876,
+  "http_failures": 96,
+  "failure_ratio": 0.005688551789523584,
+  "counters": {
+    "queued": 404,
+    "held": 404,
+    "verify_ok": 93,
+    "expired": 404,
+    "verify_fail": 311
+  },
+  "inventory_ok": true,
+  "inventory_error": null,
+  "metrics": {
+    "POST /orders [POST abandon]": {
+      "count": 500,
+      "p50_ms": 2195.536499999889,
+      "p95_ms": 7930.457399999796,
+      "p99_ms": 8396.358799999689
+    },
+    "QUEUE order request end-to-end": {
+      "count": 404,
+      "p50_ms": 12074.381899999935,
+      "p95_ms": 21005.210700000134,
+      "p99_ms": 22771.694600000046
+    },
+    "GET /orders/requests/{id} [GET]": {
+      "count": 1418,
+      "p50_ms": 1640.0892999999996,
+      "p95_ms": 1983.29590000003,
+      "p99_ms": 2020.7852999997158
+    },
+    "GET /orders/{id} [expiry]": {
+      "count": 14958,
+      "p50_ms": 995.0054999999338,
+      "p95_ms": 1683.8519000002634,
+      "p99_ms": 1961.8153999999777
+    },
+    "SWEEPER expiry lag": {
+      "count": 404,
+      "p50_ms": 13541.174173355103,
+      "p95_ms": 19376.017570495605,
+      "p99_ms": 20242.963314056396
+    },
+    "VERIFY sweeper lag < 10s": {
+      "count": 404,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    }
+  },
+  "scenario_checks": {
+    "checks": {
+      "remaining_restored_after_expiry_under_90s": true
+    },
+    "evidence": {
+      "stock_recovered_seconds_from_first_hold": 100.31430125236511,
+      "stock_recovered_seconds_after_last_expiry": 19.508406162261963
+    },
+    "conventions": "RAM: so trung vị 5 phút đầu/cuối, tăng <=20% là ổn định quan sát; kết nối: chênh <=2. Đây là quy ước đo, không chứng minh tuyệt đối không leak."
+  },
+  "scope": "Đánh giá tự động một phần; xem README để đối chiếu đầy đủ tiêu chí notebook.",
+  "note": "Đối chiếu scenario_checks.json; thiếu bằng chứng không được tính PASS. Kết luận S9 nằm trong báo cáo ma trận tổng hợp."
+}

@@ -7,6 +7,7 @@ from collections.abc import Generator
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app import config
@@ -14,12 +15,10 @@ from app.config import ADMIN_EMAILS, JWT_EXPIRE_MINUTES, JWT_SECRET
 from app.api.rate_limit import RateLimiter
 from app.integrations import build_payment_gateway
 from app.order_worker import wakeup as order_queue_wakeup
-from app.repositories.concert_repo import ConcertRepository
 from app.repositories.database import SessionLocal
 from app.repositories.models import User
 from app.repositories.unit_of_work import SqlAlchemyUnitOfWork
 from app.repositories.resilience import database_policy
-from app.repositories.ticket_type_repo import TicketTypeRepository
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import AuthService
 from app.services.concert_service import ConcertService
@@ -28,12 +27,13 @@ from app.services.order_request_service import OrderRequestService
 from app.services.order_service import OrderService
 from app.services.payment_gateway import PaymentGateway
 from app.services.payment_service import PaymentService
+from app.services.read_cache import ReadThroughCache
 from app.services.ticket_codes import TicketCodes
 from app.services.waiting_room_service import WaitingRoomService
 
 
 def get_db() -> Generator[Session, None, None]:
-    """Session cho tài khoản/tra cứu; nghiệp vụ đơn hàng dùng UoW riêng."""
+    """Session cho tài khoản và quản lý concert."""
     # Commit/cleanup must complete before sending the response.
     # A yielded endpoint cannot be replayed here, so use protection only.
     with database_policy.protect():
@@ -50,12 +50,25 @@ def get_auth_service(db: Session = Depends(get_db, scope="function")) -> AuthSer
     return AuthService(UserRepository(db), JWT_SECRET, JWT_EXPIRE_MINUTES)
 
 
-def get_concert_service(db: Session = Depends(get_db, scope="function")) -> ConcertService:
-    return ConcertService(ConcertRepository(db), TicketTypeRepository(db))
-
-
 def _uow() -> SqlAlchemyUnitOfWork:
     return SqlAlchemyUnitOfWork(SessionLocal)
+
+
+# Cache danh sách concert/hạng vé dùng chung cho mọi request của tiến trình (Cache-Aside).
+catalog_cache = ReadThroughCache(config.CATALOG_CACHE_TTL_SECONDS)
+
+
+def get_concert_service() -> ConcertService:
+    return ConcertService(_uow, protect=database_policy.protect, cache=catalog_cache)
+
+
+def get_catalog_admin_db(db: Session = Depends(get_db, scope="function")) -> Session:
+    """Session cho quản lý concert: xóa cache danh sách SAU KHI thay đổi đã commit.
+
+    Xóa trước commit thì một request đọc chen giữa có thể nạp lại dữ liệu cũ vào cache.
+    """
+    event.listen(db, "after_commit", lambda _session: catalog_cache.invalidate())
+    return db
 
 
 def get_order_service() -> OrderService:

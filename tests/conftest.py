@@ -12,6 +12,9 @@ os.environ["ORDER_WORKERS"] = "0"
 # (tests/test_waiting_room.py) tự gắn bộ giới hạn nhỏ.
 for _name in ("AUTH", "ORDERS", "ORDER_STATUS", "WAITING_ROOM"):
     os.environ[f"RATE_LIMIT_{_name}_PER_MINUTE"] = "0"
+# Tắt cache danh sách concert để test đọc thấy ngay dữ liệu vừa ghi; cache có test riêng
+# (tests/test_catalog_cache.py) tự bật lại.
+os.environ["CATALOG_CACHE_TTL_SECONDS"] = "0"
 
 from app.repositories.models import TicketType  # noqa: E402
 from app.repositories.ticket_repo import TicketRepository  # noqa: E402

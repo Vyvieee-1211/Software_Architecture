@@ -1,0 +1,100 @@
+{
+  "scenario": "S9",
+  "status": "FAIL",
+  "http_requests": 109422,
+  "http_failures": 1817,
+  "failure_ratio": 0.01660543583557237,
+  "counters": {
+    "queued": 4650,
+    "held": 4410,
+    "abandoned": 929,
+    "webhook_paid": 3123,
+    "paid": 3123,
+    "webhook_failed": 358,
+    "verify_ok": 3123,
+    "HoldLimitExceeded": 58,
+    "SoldOut": 19466
+  },
+  "inventory_ok": true,
+  "inventory_error": null,
+  "metrics": {
+    "GET /concerts": {
+      "count": 14537,
+      "p50_ms": 3390.2831000013975,
+      "p95_ms": 5889.299799997389,
+      "p99_ms": 7095.1832000009745
+    },
+    "GET /concerts/{id}/ticket-types": {
+      "count": 33855,
+      "p50_ms": 3394.422900000791,
+      "p95_ms": 5895.583200001056,
+      "p99_ms": 7115.414500000043
+    },
+    "GET /orders/me": {
+      "count": 4885,
+      "p50_ms": 4514.329500001622,
+      "p95_ms": 7878.74020000163,
+      "p99_ms": 9288.393900000301
+    },
+    "GET /concerts/{id}": {
+      "count": 14437,
+      "p50_ms": 3387.8465999987384,
+      "p95_ms": 5857.159499999398,
+      "p99_ms": 6801.509099997929
+    },
+    "POST /orders [POST]": {
+      "count": 23824,
+      "p50_ms": 4510.2785999988555,
+      "p95_ms": 7870.110300000306,
+      "p99_ms": 8965.004299998327
+    },
+    "QUEUE order request end-to-end": {
+      "count": 4650,
+      "p50_ms": 22700.04020000124,
+      "p95_ms": 25700.647699999536,
+      "p99_ms": 26157.785199999125
+    },
+    "GET /orders/requests/{id} [GET]": {
+      "count": 7799,
+      "p50_ms": 7235.720200000287,
+      "p95_ms": 8701.927199999773,
+      "p99_ms": 9214.47690000059
+    },
+    "POST /orders/{id}/pay [POST]": {
+      "count": 3481,
+      "p50_ms": 9103.678199999194,
+      "p95_ms": 10799.910599998839,
+      "p99_ms": 11438.531800000419
+    },
+    "POST /mock-gateway/pay [POST]": {
+      "count": 3481,
+      "p50_ms": 9092.09759999976,
+      "p95_ms": 10641.11530000082,
+      "p99_ms": 11205.624700000044
+    },
+    "VERIFY issued tickets and QR": {
+      "count": 3123,
+      "p50_ms": 0.0,
+      "p95_ms": 0.0,
+      "p99_ms": 0.0
+    },
+    "GET /orders/{id}/tickets [GET]": {
+      "count": 3123,
+      "p50_ms": 7313.119200000074,
+      "p95_ms": 8798.886200000197,
+      "p99_ms": 9259.317699999883
+    }
+  },
+  "scenario_checks": {
+    "checks": {
+      "paid_ratio_approximately_72_percent": true,
+      "queue_and_abandoned_holds_drained": true
+    },
+    "evidence": {
+      "paid_per_successful_hold_ratio": 0.7081632653061225
+    },
+    "conventions": "RAM: so trung vị 5 phút đầu/cuối, tăng <=20% là ổn định quan sát; kết nối: chênh <=2. Đây là quy ước đo, không chứng minh tuyệt đối không leak."
+  },
+  "scope": "Đánh giá tự động một phần; xem README để đối chiếu đầy đủ tiêu chí notebook.",
+  "note": "Đối chiếu scenario_checks.json; thiếu bằng chứng không được tính PASS. Kết luận S9 nằm trong báo cáo ma trận tổng hợp."
+}
