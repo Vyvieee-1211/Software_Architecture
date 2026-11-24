@@ -14,7 +14,16 @@ Chọn kịch bản bằng biến môi trường SCENARIO (mặc định `funnel
     (S8 soak = funnel chạy 30 phút; S9 scalability = lặp flash/funnel với --workers/pool
      khác nhau; S10 chịu lỗi = funnel + `docker compose stop db` giữa chừng)
 
+Waiting room / rate limit / load shedding (đợt mở bán):
+    Trước khi đặt mua, mỗi user vào hàng chờ của CONCERT_ID và chờ tới lượt (đo bằng mẫu
+    WAITING "waiting room end-to-end"), rồi gửi thẻ vào cửa trong header X-Waiting-Room-Pass.
+    Ngoài đợt mở bán server trả `inactive` và user đặt mua ngay. 429 (RateLimited) và 503
+    (ServerBusy/DatabaseUnavailable) là lỗi hạ tầng, được đếm riêng trong bộ đếm `http_<mã>`.
+    Đo hiệu năng thuần (không muốn bị giới hạn) thì chạy API với RATE_LIMIT_*_PER_MINUTE=0
+    và MAX_IN_FLIGHT_REQUESTS=0: Locust đăng ký mọi user từ cùng một IP.
+
 Biến môi trường khác:
+    WAITING_ROOM_TIMEOUT_SECONDS  chờ tới lượt tối đa (mặc định 900)
     CONCERT_ID             concert dùng để đọc/giữ chỗ (mặc định 1)
     TICKET_TYPE_ID         hạng vé cho flash/contention/replay (mặc định: hạng đầu của concert)
     LOADTEST_DATABASE_URL  nếu đặt (postgresql://...), cuối lượt chạy kiểm tra bất biến kho
@@ -38,6 +47,7 @@ import random
 import time
 import uuid
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -51,6 +61,7 @@ log = logging.getLogger("loadtest")
 SCENARIO = os.getenv("SCENARIO", "funnel").lower()
 CONCERT_ID = int(os.getenv("CONCERT_ID", "1"))
 TICKET_TYPE_ID = os.getenv("TICKET_TYPE_ID")
+WAITING_ROOM_TIMEOUT = float(os.getenv("WAITING_ROOM_TIMEOUT_SECONDS", "900"))
 PASSWORD = "secret123"
 BUSINESS_REJECTS = (400, 409)  # từ chối nghiệp vụ hợp lệ, không phải lỗi hạ tầng
 
@@ -94,6 +105,8 @@ class BaseUser(HttpUser):
             return
         self.headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
         self.held: list[int] = []
+        self.room_pass: str | None = None      # thẻ vào cửa waiting room
+        self.room_valid_until = 0.0             # epoch: dùng lại pass / kết quả "inactive" tới lúc này
         self.ticket_types = self._ticket_types()
 
     def _ticket_types(self) -> list[int]:
@@ -108,10 +121,47 @@ class BaseUser(HttpUser):
 
     # --- các bước nghiệp vụ, trả về dữ liệu hoặc None ---
 
+    def waiting_room(self):
+        """Lấy thẻ vào cửa cho CONCERT_ID. Trả về (True, pass hoặc None khi không cần), hoặc
+        (False, None) khi lỗi hạ tầng / chờ quá lâu."""
+        if time.time() < self.room_valid_until:
+            return True, self.room_pass
+        started = time.monotonic()
+        while time.monotonic() - started < WAITING_ROOM_TIMEOUT:
+            with self.client.post(f"/concerts/{CONCERT_ID}/waiting-room", headers=self.headers,
+                                  name="/concerts/{id}/waiting-room [POST]", catch_response=True) as r:
+                if r.status_code != 200:
+                    count(f"http_{r.status_code}")
+                    r.failure(f"unexpected {r.status_code}: {r.text[:120]}")
+                    return False, None
+                body = r.json()
+                retry_after = float(r.headers.get("Retry-After", 2))
+            if body["status"] == "inactive":
+                # Ngoài đợt mở bán: không cần pass; hỏi lại sau 30 giây phòng khi đợt bắt đầu.
+                self.room_pass, self.room_valid_until = None, time.time() + 30
+                return True, None
+            if body["status"] == "admitted":
+                waited = (time.monotonic() - started) * 1000
+                events.request.fire(request_type="WAITING", name="waiting room end-to-end",
+                                    response_time=waited, response_length=0, exception=None, context={})
+                count("room_admitted")
+                expires = datetime.fromisoformat(body["pass_expires_at"]).replace(tzinfo=timezone.utc)
+                self.room_pass = body["pass_token"]
+                self.room_valid_until = expires.timestamp() - 5   # chừa biên đồng hồ
+                return True, self.room_pass
+            gevent.sleep(retry_after)      # waiting / not_open / expired (POST tự xếp lại)
+        count("room_timeout")
+        return False, None
+
     def submit(self, ticket_type_id, quantity, key, name="/orders [POST]"):
         """Gửi yêu cầu giữ chỗ (202 + Location). Trả về response, hoặc None nếu lỗi hạ tầng."""
+        ok, room_pass = self.waiting_room()
+        if not ok:
+            return None
         body = {"ticket_type_id": ticket_type_id, "quantity": quantity}
         headers = {**self.headers, "Idempotency-Key": key}
+        if room_pass:
+            headers["X-Waiting-Room-Pass"] = room_pass
         with self.client.post("/orders", json=body, headers=headers, name=name, catch_response=True) as r:
             if r.status_code == 202:
                 count("replayed" if r.headers.get("Idempotent-Replayed") == "true" else "queued")
@@ -120,6 +170,9 @@ class BaseUser(HttpUser):
                 count(r.json().get("error", str(r.status_code)))
                 r.success()
                 return r
+            count(f"http_{r.status_code}")
+            if r.status_code == 403 and "WaitingRoomRequired" in r.text:
+                self.room_valid_until = 0          # pass hết hạn/không hợp lệ: lần sau xếp hàng lại
             r.failure(f"unexpected {r.status_code}: {r.text[:120]}")
             return None
 

@@ -1,5 +1,30 @@
 import os
 import math
+from pathlib import Path
+
+
+def _load_dotenv(path: Path) -> None:
+    """Nạp `.env` ở thư mục gốc (nếu có) vào biến môi trường, KHÔNG ghi đè biến đã đặt.
+
+    Nhờ vậy biến đặt trong terminal hay docker-compose luôn thắng file; test đặt
+    DATABASE_URL trước khi import `app` nên không bị .env của máy dev ảnh hưởng.
+    Cú pháp: KEY=VALUE mỗi dòng, bỏ qua dòng trống và dòng bắt đầu bằng #,
+    giá trị có thể bọc trong dấu nháy đơn/kép.
+    """
+    if not path.is_file():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key, value = key.strip(), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
+_load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 def _number(name, default, convert, minimum):
@@ -47,6 +72,28 @@ ORDER_REQUEST_MAX_ATTEMPTS = _number("ORDER_REQUEST_MAX_ATTEMPTS", 3, int, 1)
 ORDER_STATUS_RETRY_AFTER_SECONDS = _number("ORDER_STATUS_RETRY_AFTER_SECONDS", 1, int, 1)
 # Đơn đã thanh toán chỉ được hủy (hoàn toàn bộ tiền) trước giờ diễn ít nhất chừng này giờ.
 REFUND_CUTOFF_HOURS = _number("REFUND_CUTOFF_HOURS", 24, float, 0)
+
+# --- Đợt mở bán: Waiting room → Rate limit → Load shedding (từ ngoài vào trong) ---
+# Virtual Waiting Room: bật trong chừng này phút đầu sau giờ mở bán của mỗi concert; 0 = tắt.
+WAITING_ROOM_MINUTES = _number("WAITING_ROOM_MINUTES", 30, float, 0)
+# Cho phép vào hàng chờ sớm chừng này phút trước giờ mở bán.
+WAITING_ROOM_LEAD_MINUTES = _number("WAITING_ROOM_LEAD_MINUTES", 15, float, 0)
+# Lúc mở bán cho vào ngay chừng này người, sau đó thêm WAITING_ROOM_ADMIT_PER_MINUTE người mỗi phút.
+# Chọn theo sức chịu đo được: số người đồng thời chịu được ÷ thời gian trung bình một lượt mua.
+WAITING_ROOM_INITIAL_BATCH = _number("WAITING_ROOM_INITIAL_BATCH", 100, int, 0)
+WAITING_ROOM_ADMIT_PER_MINUTE = _number("WAITING_ROOM_ADMIT_PER_MINUTE", 100, float, 0)
+# Thẻ vào cửa dùng được chừng này phút kể từ khi tới lượt; hết hạn thì xếp hàng lại.
+WAITING_ROOM_PASS_MINUTES = _number("WAITING_ROOM_PASS_MINUTES", 10, float, 0.1)
+WAITING_ROOM_SECRET = os.getenv("WAITING_ROOM_SECRET", "dev-waiting-room-secret-change-me-32-bytes")
+# Rate limit (token bucket trong bộ nhớ mỗi tiến trình), số request mỗi phút; 0 = tắt.
+# Chạy N tiến trình API thì giới hạn thực tế gấp khoảng N lần.
+RATE_LIMIT_AUTH_PER_MINUTE = _number("RATE_LIMIT_AUTH_PER_MINUTE", 20, float, 0)            # theo IP
+RATE_LIMIT_ORDERS_PER_MINUTE = _number("RATE_LIMIT_ORDERS_PER_MINUTE", 10, float, 0)        # theo user
+RATE_LIMIT_ORDER_STATUS_PER_MINUTE = _number("RATE_LIMIT_ORDER_STATUS_PER_MINUTE", 120, float, 0)
+RATE_LIMIT_WAITING_ROOM_PER_MINUTE = _number("RATE_LIMIT_WAITING_ROOM_PER_MINUTE", 60, float, 0)
+# Load shedding: số request đang xử lý tối đa mỗi tiến trình; vượt thì trả 503 ngay. 0 = tắt.
+MAX_IN_FLIGHT_REQUESTS = _number("MAX_IN_FLIGHT_REQUESTS", 200, int, 0)
+OVERLOAD_RETRY_AFTER_SECONDS = _number("OVERLOAD_RETRY_AFTER_SECONDS", 1, int, 1)
 
 PAYMENT_PROVIDER = os.getenv("PAYMENT_PROVIDER", "mock")
 # Khóa bí mật dùng chung với cổng thanh toán để ký/kiểm tra webhook (HMAC-SHA256).

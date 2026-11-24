@@ -153,6 +153,18 @@ def test_expired_hold_returns_tickets_and_cannot_be_paid(client):
     assert remaining(client) == 3 and ticket_rows("available") == 3
 
 
+def test_reading_overdue_order_expires_it_without_sweeper(client):
+    h = auth_header(client)
+    order = hold(client, h, quantity=2)
+    expire_now(order["id"])
+    assert remaining(client) == 1  # sweeper chưa chạy
+
+    assert client.get(f"/orders/{order['id']}", headers=h).json()["status"] == "expired"
+    assert remaining(client) == 3 and ticket_rows("available") == 3
+    assert deps.get_order_service().expire_holds() == 0
+    assert client.delete(f"/orders/{order['id']}", headers=h).json()["error"] == "InvalidState"
+
+
 def test_payment_arriving_after_expiry_is_refunded_not_issued(client):
     h = auth_header(client)
     order = hold(client, h, quantity=2)

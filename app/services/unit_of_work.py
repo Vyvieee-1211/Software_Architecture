@@ -18,6 +18,13 @@ class OrderRecord(Protocol):
     created_at: datetime
 
 
+class ExpiredHold(Protocol):
+    """Đơn vừa được chuyển `held → expired`; đủ thông tin để hoàn kho."""
+    id: int
+    ticket_type_id: int
+    quantity: int
+
+
 class TicketTypeRecord(Protocol):
     id: int
     concert_id: int
@@ -26,6 +33,7 @@ class TicketTypeRecord(Protocol):
 
 
 class ConcertRecord(Protocol):
+    id: int
     sale_open_time: datetime
     start_time: datetime
 
@@ -75,7 +83,7 @@ class Orders(Protocol):
     def get_by_idempotency_key(self, user_id: int, idempotency_key: str) -> OrderRecord | None: ...
     def list_by_user(self, user_id: int) -> list[OrderRecord]: ...
     def held_quantity(self, user_id: int, now: datetime) -> int: ...
-    def list_expired_ids(self, now: datetime, limit: int) -> list[int]: ...
+    def expire_overdue(self, now: datetime, limit: int) -> list[ExpiredHold]: ...
     def cancel_hold(self, order_id: int, user_id: int) -> bool: ...
     def mark_paid(self, order_id: int, now: datetime) -> bool: ...
     def mark_failed(self, order_id: int) -> bool: ...
@@ -119,6 +127,22 @@ class OrderRequests(Protocol):
     def record_crash(self, request_id: int, detail: str, max_attempts: int, now: datetime) -> bool: ...
 
 
+class WaitingRoomEntryRecord(Protocol):
+    id: int
+    concert_id: int
+    user_id: int
+    joined_at: datetime
+    admitted_at: datetime | None
+
+
+class WaitingRoom(Protocol):
+    def get(self, concert_id: int, user_id: int) -> WaitingRoomEntryRecord | None: ...
+    def join(self, concert_id: int, user_id: int, now: datetime) -> WaitingRoomEntryRecord: ...
+    def requeue(self, entry: WaitingRoomEntryRecord, now: datetime) -> WaitingRoomEntryRecord: ...
+    def count_ahead(self, concert_id: int, entry_id: int) -> int: ...
+    def mark_admitted(self, entry_id: int, now: datetime) -> bool: ...
+
+
 class UnitOfWork(Protocol):
     users: Users
     orders: Orders
@@ -127,6 +151,7 @@ class UnitOfWork(Protocol):
     concerts: Concerts
     transactions: Transactions
     order_requests: OrderRequests
+    waiting_room: WaitingRoom
 
     def __enter__(self) -> Self: ...
 

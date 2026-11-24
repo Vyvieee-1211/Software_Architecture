@@ -161,6 +161,29 @@ def test_payment_and_expiry_race(sessions):
     assert by_status.get("available", 0) == remaining and by_status.get("held", 0) == 0
 
 
+def test_parallel_sweepers_expire_each_hold_once(sessions):
+    """Bốn sweeper (như bốn tiến trình API) cùng quét 20 đơn quá hạn trên nhiều hạng vé:
+    SKIP LOCKED chia việc, mỗi đơn hết hạn đúng một lần, kho về đủ, không deadlock."""
+    with sessions() as db:
+        add_ticket_type(db, concert_id=1, name="VIP", price=Decimal("200"), total_quantity=20)
+        db.commit()
+    orders = make_order_service(sessions)
+    for i in range(20):
+        orders.create_order(user_id=i + 1, ticket_type_id=1 + i % 2, quantity=1)
+    with sessions() as db:
+        db.execute(text("UPDATE orders SET expires_at = now() at time zone 'utc' - interval '1 second'"))
+        db.commit()
+
+    outcomes = run_parallel(4, lambda i: orders.expire_holds(batch_size=3))
+    assert all(kind == "ok" for kind, _ in outcomes), outcomes
+    assert sum(count for _, count in outcomes) == 20
+    with sessions() as db:
+        assert db.scalar(select(func.count()).select_from(Order).where(Order.status == "expired")) == 20
+        remaining = dict(db.execute(select(TicketType.id, TicketType.remaining)).all())
+        available = db.scalar(select(func.count()).select_from(Ticket).where(Ticket.status == "available"))
+    assert remaining == {1: 20, 2: 20} and available == 40
+
+
 def test_duplicate_webhooks_in_parallel_apply_once(sessions):
     gateway = MockPaymentGateway("secret", "http://test")
     orders = make_order_service(sessions)

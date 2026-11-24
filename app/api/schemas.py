@@ -167,3 +167,15 @@ class WebhookResponse(BaseModel):
 class MockPayRequest(BaseModel):
     token: str
     result: Literal["success", "failed"] = "success"
+
+
+class WaitingRoomResponse(BaseModel):
+    status: Literal["inactive", "not_open", "not_joined", "waiting", "admitted", "expired"] = Field(
+        description="inactive: không cần xếp hàng · not_open: chưa tới giờ vào hàng · waiting: đang chờ · "
+                    "admitted: được vào, gửi pass_token trong header X-Waiting-Room-Pass khi đặt mua · "
+                    "expired: pass hết hạn, gọi POST để xếp lại cuối hàng")
+    position: int | None = Field(None, description="Số thứ tự trong hàng chờ (1 = người kế tiếp)")
+    estimated_wait_seconds: int | None = None
+    pass_token: str | None = None
+    pass_expires_at: datetime | None = None
+    opens_at: datetime | None = Field(None, description="Lúc bắt đầu cho vào hàng chờ (khi status = not_open)")

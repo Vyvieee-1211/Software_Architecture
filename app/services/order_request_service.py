@@ -65,7 +65,7 @@ def order_key(request_id: int) -> str:
 class OrderRequestService:
     def __init__(self, uow_factory: Callable[[], UnitOfWork], orders: OrderService,
                  clock=_utcnow, execute=None, *, max_attempts: int = 3,
-                 on_submitted: Callable[[], None] | None = None):
+                 on_submitted: Callable[[], None] | None = None, waiting_room=None):
         self.uow_factory = uow_factory
         self.orders = orders
         self.clock = clock
@@ -73,11 +73,14 @@ class OrderRequestService:
         self.max_attempts = max_attempts
         # Báo worker trong cùng tiến trình có việc mới (không bắt buộc: worker vẫn tự hỏi định kỳ).
         self.on_submitted = on_submitted
+        # WaitingRoomService (nếu có): trong đợt mở bán, yêu cầu phải kèm pass hợp lệ.
+        self.waiting_room = waiting_room
 
     # --- Phía client: gửi yêu cầu, hỏi trạng thái ----------------------------
 
     def submit(self, user_id: int, ticket_type_id: int, quantity: int,
-               idempotency_key: str | None = None) -> tuple[OrderRequestData, bool]:
+               idempotency_key: str | None = None,
+               waiting_room_pass: str | None = None) -> tuple[OrderRequestData, bool]:
         """Xếp yêu cầu đặt vé vào hàng đợi. Trả về (yêu cầu, created).
 
         created=False: đây là lần gửi lại cùng Idempotency-Key, trả về yêu cầu cũ (dù nó
@@ -90,12 +93,13 @@ class OrderRequestService:
         if quantity > self.orders.max_per_order:
             raise ValueError(f"quantity must not exceed {self.orders.max_per_order} per order")
 
-        result = self.execute(lambda: self._submit(user_id, ticket_type_id, quantity, idempotency_key))
+        result = self.execute(lambda: self._submit(user_id, ticket_type_id, quantity, idempotency_key,
+                                                   waiting_room_pass))
         if result[1] and self.on_submitted is not None:
             self.on_submitted()
         return result
 
-    def _submit(self, user_id, ticket_type_id, quantity, idempotency_key):
+    def _submit(self, user_id, ticket_type_id, quantity, idempotency_key, waiting_room_pass=None):
         with self.uow_factory() as uow:
             if idempotency_key is not None:
                 existing = uow.order_requests.get_by_key(user_id, idempotency_key)
@@ -105,7 +109,12 @@ class OrderRequestService:
             ticket_type = uow.ticket_types.get_by_id(ticket_type_id)
             if ticket_type is None:
                 raise NotFound(f"ticket_type {ticket_type_id}")
-            check_sale_window(uow.concerts.get_by_id(ticket_type.concert_id), self.clock())
+            concert = uow.concerts.get_by_id(ticket_type.concert_id)
+            now = self.clock()
+            check_sale_window(concert, now)
+            if self.waiting_room is not None:
+                # Gửi lại cùng Idempotency-Key đã trả kết quả ở trên, không cần pass còn hạn.
+                self.waiting_room.verify_pass(waiting_room_pass, user_id, concert, now)
             # Đọc không khóa, chỉ để từ chối sớm khi đã hết: worker mới là nơi trừ kho thật.
             if ticket_type.remaining < quantity:
                 raise SoldOut(f"ticket_type {ticket_type_id}")

@@ -1,5 +1,9 @@
 """Luồng nền định kỳ trả vé của các đơn giữ chỗ đã quá hạn.
 
+Mỗi chu kỳ xử lý HẾT các đơn quá hạn (theo lô, xem OrderService.expire_holds). Người dùng
+mở đơn quá hạn thì thấy `expired` ngay nhờ hết hạn lười trong OrderService.get_order,
+không phải chờ chu kỳ kế tiếp.
+
 Tính đúng không phụ thuộc vào luồng này: thanh toán chỉ chốt được đơn còn hạn, và mỗi
 đơn chỉ chuyển trạng thái được một lần. Luồng này chỉ quyết định vé quá hạn quay lại
 kho sớm hay muộn, nên chạy ở nhiều tiến trình cùng lúc cũng an toàn.

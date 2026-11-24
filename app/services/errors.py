@@ -65,3 +65,7 @@ class PaymentGatewayError(BusinessError):
 
 class RefundWindowClosed(BusinessError):
     """Đã quá hạn hoàn tiền: quá sát (hoặc sau) giờ diễn."""
+
+
+class WaitingRoomRequired(BusinessError):
+    """Đang trong đợt mở bán có waiting room: cần thẻ vào cửa hợp lệ để đặt mua."""

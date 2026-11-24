@@ -8,6 +8,7 @@ from app.repositories.ticket_repo import TicketRepository
 from app.repositories.ticket_type_repo import TicketTypeRepository
 from app.repositories.transaction_repo import TransactionRepository
 from app.repositories.user_repo import UserRepository
+from app.repositories.waiting_room_repo import WaitingRoomRepository
 from app.services.infrastructure_errors import DatabaseUnavailable
 
 
@@ -24,6 +25,7 @@ class SqlAlchemyUnitOfWork:
         self.concerts = ConcertRepository(self.session)
         self.transactions = TransactionRepository(self.session)
         self.order_requests = OrderRequestRepository(self.session)
+        self.waiting_room = WaitingRoomRepository(self.session)
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):

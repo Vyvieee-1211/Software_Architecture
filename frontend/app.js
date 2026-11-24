@@ -19,6 +19,9 @@ const drafts = new Map();
 // đặt lại cùng hạng vé + số lượng không tạo thêm đơn.
 let pendingBooking = null;
 const BOOKING_RETRIES = 2;
+// Virtual Waiting Room của concert đang xem: trạng thái lần hỏi gần nhất (vị trí / thẻ vào cửa).
+let waitingRoom = null;
+let waitingTimer = null;
 
 // Khớp với cấu hình mặc định của server (HOLD_MINUTES, REFUND_CUTOFF_HOURS). Chỉ dùng để
 // hiển thị: hạn giữ chỗ thật lấy từ `expires_at`, và server luôn là bên kiểm tra cuối cùng.
@@ -108,6 +111,7 @@ function empty(title, description, action = '') {
 async function renderRoute() {
   const version = ++pageVersion;
   detail = null;
+  clearWaitingRoom();
   closeOrderView();
   if (!mutationBusy) dialog.close();
   const route = path();
@@ -250,10 +254,83 @@ async function renderDetail(version, id) {
   detail = { concert, tickets, selectedId: selected?.id };
   document.title = `${eventTitle(concert)} — HIT THE VIBE`;
   main.innerHTML = `<section class="detail-art-banner"><div class="container"><a class="back-link" href="#/concerts">← Tất cả concert</a><div class="detail-banner-title"><p class="eyebrow">HIT THE VIBE / LIVE CONCERT</p><h1>${escape(eventTitle(concert))}</h1><span>${escape(eventArtist(concert))}</span></div><span class="detail-banner-stamp" aria-hidden="true">LIVE<br>EXPERIENCE ↗</span></div></section>
-    <div class="container detail-page"><div class="detail-grid"><div class="event-information"><section class="detail-heading"><p class="eyebrow">THÔNG TIN SỰ KIỆN</p>${saleBadge(concert)}<h2>${escape(eventTitle(concert))}</h2><div class="event-info-grid"><div><span>Nghệ sĩ</span><strong>${escape(eventArtist(concert))}</strong></div><div><span>Thời gian</span><strong>${escape(dateText(concert.start_time))}</strong></div><div><span>Địa điểm</span><strong>${escape(eventVenue(concert))}</strong></div><div><span>Thời gian mở bán</span><strong>${escape(dateText(concert.sale_open_time))}</strong></div></div></section><section class="event-about"><h2>Về sự kiện</h2><p>Thông tin giới thiệu chi tiết sẽ được cập nhật. Bạn có thể xem nghệ sĩ, thời gian và địa điểm diễn ở trên, chọn hạng vé và xác nhận đơn vé tại đây.</p>${poster(concert, 'detail-poster')}<p class="artwork-caption">HIT THE VIBE / Minh họa không khí đêm nhạc.</p></section><section class="booking-guide"><p class="eyebrow">TRƯỚC KHI ĐẶT VÉ</p><h2>Sẵn sàng cho đêm nhạc.</h2><ol><li>Chọn một hạng vé và số lượng (tối đa 10 vé mỗi lần).</li><li>Bấm “Đặt vé & thanh toán”: vé được giữ riêng cho bạn trong 12 phút và bạn được chuyển ngay tới cổng thanh toán.</li><li>Hoàn tất thanh toán trước khi hết giờ, nếu không vé tự động được trả lại kho.</li><li>Nhận vé kèm mã QR trong mục “Vé của tôi”.</li></ol></section></div>
-      <aside class="booking-panel" aria-labelledby="booking-title"><div class="booking-panel-header"><span class="eyebrow">YOUR TICKET TO THE MOMENT</span><h2 id="booking-title">Chọn vé của bạn</h2><p>Tối đa 10 vé mỗi lần · Giữ chỗ 12 phút để thanh toán</p></div><div id="sale-notice">${!isOpen(concert) ? `<div class="notice notice-info">Vé mở bán lúc ${escape(dateText(concert.sale_open_time))} (giờ Việt Nam).</div>` : ''}</div><div class="ticket-list" role="radiogroup" aria-label="Chọn hạng vé">${tickets.length ? tickets.map((ticket) => `<div class="ticket-option ${selected?.id === ticket.id ? 'is-selected' : ''}"><label class="ticket-option-label"><input type="radio" name="ticket" value="${ticket.id}" ${selected?.id === ticket.id ? 'checked' : ''} ${ticket.remaining <= 0 ? 'disabled' : ''}><span class="ticket-copy"><strong>${escape(ticket.name)}</strong><span class="ticket-stock">${ticket.remaining > 0 ? `Còn ${ticket.remaining.toLocaleString('vi-VN')} vé` : 'Đã hết vé'}</span></span></label><div class="ticket-option-bottom"><span class="ticket-price">${money(ticket.price)}</span>${rowQuantity(ticket, selected?.id, quantity)}</div></div>`).join('') : empty('Chưa có hạng vé', 'Thông tin vé sẽ được cập nhật sau.')}</div><div class="booking-summary"><div class="summary-row"><span>Hạng vé</span><strong id="summary-ticket"></strong></div><div class="summary-row"><span>Đơn giá</span><strong id="summary-price"></strong></div><div class="selected-quantity"><label for="quantity">Số lượng đã chọn</label><div class="quantity-control"><button type="button" data-action="decrease" aria-label="Giảm số lượng">−</button><input id="quantity" type="number" min="1" max="10" step="1" value="${quantity}" inputmode="numeric" aria-describedby="quantity-error"><button type="button" data-action="increase" aria-label="Tăng số lượng">+</button></div></div><p class="form-error" id="quantity-error" hidden></p><div class="summary-total"><span>Tổng tiền</span><strong id="summary-total"></strong></div><button id="book-button" class="button button-primary button-full" data-action="book" type="button"></button><p class="form-error" id="book-error" role="alert" hidden></p><p class="booking-footnote">Vé được giữ cho bạn 12 phút trong lúc thanh toán. Quá thời gian, vé tự động được trả lại kho.</p></div></aside>
+    <div class="container detail-page"><div class="detail-grid"><div class="event-information"><section class="detail-heading"><p class="eyebrow">THÔNG TIN SỰ KIỆN</p>${saleBadge(concert)}<h2>${escape(eventTitle(concert))}</h2><div class="event-info-grid"><div><span>Nghệ sĩ</span><strong>${escape(eventArtist(concert))}</strong></div><div><span>Thời gian</span><strong>${escape(dateText(concert.start_time))}</strong></div><div><span>Địa điểm</span><strong>${escape(eventVenue(concert))}</strong></div><div><span>Thời gian mở bán</span><strong>${escape(dateText(concert.sale_open_time))}</strong></div></div></section><section class="event-about"><h2>Về sự kiện</h2><p>Thông tin giới thiệu chi tiết sẽ được cập nhật. Bạn có thể xem nghệ sĩ, thời gian và địa điểm diễn ở trên, chọn hạng vé và xác nhận đơn vé tại đây.</p>${poster(concert, 'detail-poster')}<p class="artwork-caption">HIT THE VIBE / Minh họa không khí đêm nhạc.</p></section><section class="booking-guide"><p class="eyebrow">TRƯỚC KHI ĐẶT VÉ</p><h2>Sẵn sàng cho đêm nhạc.</h2><ol><li>Chọn một hạng vé và số lượng phù hợp.</li><li>Kiểm tra tổng tiền trước khi xác nhận.</li><li>Quản lý vé đã đặt trong mục “Vé của tôi”.</li></ol></section></div>
+      <aside class="booking-panel" aria-labelledby="booking-title"><div class="booking-panel-header"><span class="eyebrow">YOUR TICKET TO THE MOMENT</span><h2 id="booking-title">Chọn vé của bạn</h2><p>Tối đa 10 vé mỗi lần · Giữ chỗ 12 phút để thanh toán</p></div><div id="sale-notice">${!isOpen(concert) ? `<div class="notice notice-info">Vé mở bán lúc ${escape(dateText(concert.sale_open_time))} (giờ Việt Nam).</div>` : ''}</div><div id="waiting-room" aria-live="polite"></div><div class="ticket-list" role="radiogroup" aria-label="Chọn hạng vé">${tickets.length ? tickets.map((ticket) => `<div class="ticket-option ${selected?.id === ticket.id ? 'is-selected' : ''}"><label class="ticket-option-label"><input type="radio" name="ticket" value="${ticket.id}" ${selected?.id === ticket.id ? 'checked' : ''} ${ticket.remaining <= 0 ? 'disabled' : ''}><span class="ticket-copy"><strong>${escape(ticket.name)}</strong><span class="ticket-stock">${ticket.remaining > 0 ? `Còn ${ticket.remaining.toLocaleString('vi-VN')} vé` : 'Đã hết vé'}</span></span></label><div class="ticket-option-bottom"><span class="ticket-price">${money(ticket.price)}</span>${rowQuantity(ticket, selected?.id, quantity)}</div></div>`).join('') : empty('Chưa có hạng vé', 'Thông tin vé sẽ được cập nhật sau.')}</div><div class="booking-summary"><div class="summary-row"><span>Hạng vé</span><strong id="summary-ticket"></strong></div><div class="summary-row"><span>Đơn giá</span><strong id="summary-price"></strong></div><div class="selected-quantity"><label for="quantity">Số lượng đã chọn</label><div class="quantity-control"><button type="button" data-action="decrease" aria-label="Giảm số lượng">−</button><input id="quantity" type="number" min="1" max="10" step="1" value="${quantity}" inputmode="numeric" aria-describedby="quantity-error"><button type="button" data-action="increase" aria-label="Tăng số lượng">+</button></div></div><p class="form-error" id="quantity-error" hidden></p><div class="summary-total"><span>Tổng tiền</span><strong id="summary-total"></strong></div><button id="book-button" class="button button-primary button-full" data-action="book" type="button"></button><p class="form-error" id="book-error" role="alert" hidden></p><p class="booking-footnote">Vé được giữ cho bạn 12 phút trong lúc thanh toán. Quá thời gian, vé tự động được trả lại kho.</p></div></aside>
     </div></div>`;
   syncBooking();
+  if (getSession()) syncWaitingRoom(id, version);
+}
+
+// --- Virtual Waiting Room ------------------------------------------------------
+// Trong đợt mở bán, server chỉ nhận đặt vé từ người đã tới lượt (có thẻ vào cửa).
+// Trang tự vào hàng, hỏi lại vị trí theo nhịp server gợi ý, và mở nút đặt vé khi tới lượt.
+
+function clearWaitingRoom() {
+  clearTimeout(waitingTimer);
+  waitingTimer = null;
+  waitingRoom = null;
+}
+
+const waitingRoomBlocks = () => Boolean(waitingRoom && waitingRoom.concertId === detail?.concert.id
+  && !['inactive', 'admitted'].includes(waitingRoom.status));
+
+async function syncWaitingRoom(concertId, version) {
+  clearTimeout(waitingTimer);
+  let state;
+  try {
+    state = await api.joinWaitingRoom(concertId);
+  } catch (error) {
+    // Mất mạng, quá tải hoặc bị giới hạn tốc độ: giữ trạng thái đang có và hỏi lại sau.
+    if (version === pageVersion) waitingTimer = setTimeout(() => syncWaitingRoom(concertId, version), 5000);
+    return;
+  }
+  if (version !== pageVersion || detail?.concert.id !== concertId) return;
+  waitingRoom = { concertId, ...state };
+  renderWaitingRoom();
+  syncBooking();
+  if (state.status === 'waiting' || state.status === 'not_open') {
+    const seconds = state.status === 'waiting'
+      ? state.estimated_wait_seconds / 4
+      : (date(state.opens_at).getTime() - Date.now()) / 1000;
+    waitingTimer = setTimeout(() => syncWaitingRoom(concertId, version), Math.min(15, Math.max(2, seconds || 2)) * 1000);
+  } else if (state.status === 'admitted') {
+    // Đếm ngược thời hạn thẻ vào cửa; hết hạn thì khóa nút đặt vé và mời xếp hàng lại.
+    const tick = () => {
+      if (version !== pageVersion) return;
+      if (date(waitingRoom.pass_expires_at).getTime() <= Date.now()) {
+        waitingRoom.status = 'expired';
+        renderWaitingRoom();
+        syncBooking();
+        return;
+      }
+      renderWaitingRoom();
+      waitingTimer = setTimeout(tick, 1000);
+    };
+    tick();
+  }
+}
+
+function renderWaitingRoom() {
+  const box = document.querySelector('#waiting-room');
+  if (!box) return;
+  const state = waitingRoom;
+  if (!state || state.status === 'inactive' || state.status === 'not_joined') {
+    box.innerHTML = '';
+    return;
+  }
+  if (state.status === 'not_open') {
+    box.innerHTML = `<div class="notice notice-info">Hàng chờ mua vé mở lúc ${escape(dateText(state.opens_at))}. Hãy giữ trang này mở, bạn sẽ được xếp hàng tự động.</div>`;
+  } else if (state.status === 'waiting') {
+    const minutes = Math.ceil((state.estimated_wait_seconds || 0) / 60);
+    const wait = minutes <= 1 ? 'dưới 1 phút' : `khoảng ${minutes.toLocaleString('vi-VN')} phút`;
+    box.innerHTML = `<div class="notice notice-info"><span><strong>Bạn đang trong hàng chờ · vị trí ${Number(state.position).toLocaleString('vi-VN')}</strong><br>Ước tính còn ${wait}. Giữ trang này mở, trang sẽ tự cập nhật; tải lại trang không làm mất chỗ.</span></div>`;
+  } else if (state.status === 'admitted') {
+    const left = Math.max(0, Math.floor((date(state.pass_expires_at).getTime() - Date.now()) / 1000));
+    const clock = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
+    box.innerHTML = `<div class="notice notice-success"><span><strong>Đến lượt bạn!</strong> Còn ${clock} để đặt vé.</span></div>`;
+  } else if (state.status === 'expired') {
+    box.innerHTML = '<div class="notice notice-error"><span>Lượt đặt vé của bạn đã hết hạn.</span><button class="button button-secondary button-small" data-action="rejoin-waiting-room" type="button">Xếp hàng lại</button></div>';
+  }
 }
 
 function syncBooking() {
@@ -277,8 +354,10 @@ function syncBooking() {
   badge.textContent = open ? 'Đang mở bán' : 'Sắp mở bán';
   badge.className = `badge ${open ? 'badge-success' : 'badge-muted'}`;
   const button = document.querySelector('#book-button');
-  button.disabled = !valid || !open || !ticket;
-  button.textContent = !open ? 'Chưa đến thời gian mở bán' : !ticket ? 'Chưa có vé khả dụng' : getSession() ? 'Đặt vé & thanh toán ↗' : 'Đăng nhập để đặt vé ↗';
+  const queued = waitingRoomBlocks();
+  const queueText = { waiting: `Đang xếp hàng · vị trí ${waitingRoom?.position ?? ''}`, not_open: 'Chờ mở hàng chờ', expired: 'Hết lượt · hãy xếp hàng lại' }[waitingRoom?.status] || 'Đang vào hàng chờ…';
+  button.disabled = !valid || !open || !ticket || queued;
+  button.textContent = !open ? 'Chưa đến thời gian mở bán' : !ticket ? 'Chưa có vé khả dụng' : !getSession() ? 'Đăng nhập để đặt vé ↗' : queued ? queueText : 'Đặt vé & thanh toán ↗';
   document.querySelector('[data-action="decrease"]').disabled = !ticket || quantity <= 1;
   document.querySelector('[data-action="increase"]').disabled = !ticket || quantity >= max;
   document.querySelectorAll('.ticket-option').forEach((row) => {
@@ -663,7 +742,8 @@ async function bookTicket() {
     let orderRequest;
     for (let attempt = 0; ; attempt += 1) {
       try {
-        orderRequest = await api.createOrder({ ticket_type_id: ticket.id, quantity }, key);
+        const pass = waitingRoom?.concertId === concert.id && waitingRoom.status === 'admitted' ? waitingRoom.pass_token : undefined;
+        orderRequest = await api.createOrder({ ticket_type_id: ticket.id, quantity }, key, pass);
         break;
       } catch (error) {
         // Retry an toàn vì dùng lại cùng khoá: server trả lại đúng yêu cầu đã xếp hàng.
@@ -687,6 +767,11 @@ async function bookTicket() {
     } else if (error.code === 'SoldOut' || error.code === 'SaleNotOpen') {
       await renderRoute(); // tải lại số vé còn
       showBookError(error.message);
+    } else if (error.code === 'WaitingRoomRequired') {
+      // Thẻ vào cửa thiếu hoặc đã hết hạn: quay lại hàng chờ.
+      if (detail) syncBooking();
+      showBookError(error.message);
+      if (detail?.concert.id === concert.id) syncWaitingRoom(concert.id, pageVersion);
     } else {
       if (detail) syncBooking();
       showBookError(error.code === 'NetworkError'
@@ -881,6 +966,7 @@ document.addEventListener('click', (event) => {
     }
   }
   if (action === 'book') bookTicket();
+  if (action === 'rejoin-waiting-room' && detail) syncWaitingRoom(detail.concert.id, pageVersion);
   if (action === 'cancel-order') cancelOrder(Number(button.dataset.id));
   if (action === 'pay-order') payOrder(Number(button.dataset.id));
   if (action === 'reload-tickets' && orderView) {

@@ -93,8 +93,12 @@ class FakeOrderRepo:
         return sum(o.quantity for o in self.orders.values()
                    if o.user_id == user_id and o.status == "held" and o.expires_at > now)
 
-    def list_expired_ids(self, now, limit):
-        return [o.id for o in self.orders.values() if o.status == "held" and o.expires_at <= now][:limit]
+    def expire_overdue(self, now, limit):
+        overdue = sorted((o for o in self.orders.values() if o.status == "held" and o.expires_at <= now),
+                         key=lambda o: o.expires_at)[:limit]
+        for o in overdue:
+            o.status = "expired"
+        return overdue
 
     # Giống UPDATE có điều kiện: chỉ đổi khi đơn vẫn đang "held".
     def _transition(self, order_id, status, condition=lambda o: True):
@@ -323,6 +327,40 @@ def test_expire_skips_order_cancelled_meanwhile(svc, uow, clock):
     svc.cancel_order(user_id=1, order_id=order.id)
     assert svc.expire_holds() == 0
     assert remaining(uow, 10) == 5
+
+
+def test_expire_holds_drains_all_batches(svc, uow, clock):
+    """Nhiều đơn quá hạn hơn một lô: một lần gọi vẫn xử lý hết, mỗi lô một transaction."""
+    orders = [svc.create_order(user_id=i, ticket_type_id=10, quantity=1) for i in range(1, 6)]
+    commits = uow.commits
+    clock.now = NOW + timedelta(minutes=12)
+    assert svc.expire_holds(batch_size=2) == 5
+    assert all(uow.orders.get_by_id(o.id).status == "expired" for o in orders)
+    assert remaining(uow, 10) == 5
+    assert uow.commits - commits == 3  # lô 2 + 2 + 1 (lô thiếu thì dừng)
+
+
+def test_get_order_expires_overdue_hold_immediately(svc, uow, clock):
+    """Hết hạn lười: đọc đơn quá hạn thì chuyển expired và hoàn kho ngay, không chờ sweeper."""
+    order = svc.create_order(user_id=1, ticket_type_id=10, quantity=2)
+    clock.now = NOW + timedelta(minutes=11)
+    assert svc.get_order(1, order.id).status == "held"
+    assert remaining(uow, 10) == 3
+
+    clock.now = NOW + timedelta(minutes=12)
+    assert svc.get_order(1, order.id).status == "expired"
+    assert remaining(uow, 10) == 5
+    assert svc.get_order(1, order.id).status == "expired"
+    assert svc.expire_holds() == 0  # sweeper không hoàn kho lần nữa
+    assert remaining(uow, 10) == 5
+
+
+def test_get_order_of_other_user_does_not_expire_it(svc, uow, clock):
+    order = svc.create_order(user_id=1, ticket_type_id=10, quantity=2)
+    clock.now = NOW + timedelta(minutes=13)
+    with pytest.raises(Forbidden):
+        svc.get_order(2, order.id)
+    assert uow.orders.get_by_id(order.id).status == "held"
 
 
 # --- Idempotency-Key -------------------------------------------------------

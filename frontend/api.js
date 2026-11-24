@@ -62,7 +62,9 @@ const messages = {
   SaleClosed: 'Concert đã diễn ra, không còn nhận đặt vé.',
   RefundWindowClosed: 'Đã quá hạn hoàn tiền: chỉ huỷ được đơn đã thanh toán trước giờ diễn ít nhất 24 giờ.',
   PaymentGatewayError: 'Cổng thanh toán không phản hồi. Vui lòng thử lại sau.',
-  ProcessingFailed: 'Hệ thống gặp lỗi khi xử lý yêu cầu đặt vé. Vui lòng thử lại sau ít phút; nếu vẫn lỗi, hãy liên hệ ban tổ chức.',
+  WaitingRoomRequired: 'Đang trong đợt mở bán: bạn cần xếp hàng chờ tới lượt rồi mới đặt vé được.',
+  RateLimited: 'Bạn thao tác quá nhanh. Vui lòng chờ vài giây rồi thử lại.',
+  ServerBusy: 'Hệ thống đang quá tải. Vui lòng thử lại sau ít giây.',
 };
 
 // Một khoá cho MỘT lần đặt vé; gửi lại đúng khoá này khi retry để server không tạo đơn trùng.
@@ -187,9 +189,15 @@ export const api = {
   deleteTicket: (id, ticketId) => request(`/concerts/${id}/ticket-types/${ticketId}`, { method: 'DELETE', auth: true }),
   orders: () => request('/orders/me', { auth: true }),
   // Gửi yêu cầu giữ chỗ: server xếp hàng và trả 202 kèm trạng thái `pending`.
-  createOrder: (body, idempotencyKey) => request('/orders', {
-    method: 'POST', body, auth: true, headers: { 'Idempotency-Key': idempotencyKey },
+  createOrder: (body, idempotencyKey, waitingRoomPass) => request('/orders', {
+    method: 'POST', body, auth: true, headers: {
+      'Idempotency-Key': idempotencyKey,
+      // Thẻ vào cửa của waiting room; chỉ bắt buộc trong đợt mở bán.
+      ...(waitingRoomPass ? { 'X-Waiting-Room-Pass': waitingRoomPass } : {}),
+    },
   }),
+  // Virtual Waiting Room: vào hàng (gọi lại vẫn giữ chỗ cũ) và nhận vị trí / thẻ vào cửa.
+  joinWaitingRoom: (concertId) => request(`/concerts/${concertId}/waiting-room`, { method: 'POST', auth: true }),
   orderRequest: (id) => request(`/orders/requests/${id}`, { auth: true }),
   waitForOrder,
   order: (id) => request(`/orders/${id}`, { auth: true }),

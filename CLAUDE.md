@@ -30,7 +30,7 @@ docker compose exec api python -m scripts.seed
 - Scripts must be run as modules (`python -m scripts.seed`) from the repo root so that `app` is importable. `seed` is a no-op if any concert already exists.
 - There is no linter, formatter, or type-checker configured.
 - Locust is not in `requirements.txt`; install it separately. `loadtest/locustfile.py` drives hold → pay via the mock gateway, so the API must run with `PAYMENT_PROVIDER=mock`.
-- Config is read from environment variables only (`app/config.py`); `.env.example` is documentation, nothing loads a `.env` file.
+- Config is read from environment variables (`app/config.py`). A `.env` at the repo root is loaded by `config._load_dotenv` without overriding variables already set, so terminal/compose values win; `.env` is git-ignored, `.env.example` documents the keys.
 - Do not add `Co-Authored-By` or "Generated with Claude" lines to commits or PRs.
 
 ## Architecture
@@ -72,13 +72,19 @@ Per-user hold limit (`MAX_HELD_TICKETS_PER_USER`) is enforced under a `SELECT ..
 
 ### Payments
 
-`PaymentService` never calls the gateway inside a DB transaction: one UoW to validate the order, gateway call, another UoW to record. `gateway.refund(..., payment_raw=...)` receives the stored `raw_log` of the `payment/succeeded` event because VNPay (`vnp_TransactionNo`/`vnp_PayDate`) and MoMo (`transId`) need their own transaction id to refund. Webhook delivery differs per provider and is handled in `routers/payments.py`: mock/MoMo `POST /payments/webhook` (MoMo expects 204), VNPay IPN `GET /payments/webhook` with the query string passed as `body` and a `{"RspCode"}` JSON reply; `GET /payments/return` only redirects the customer to `PAYMENT_RETURN_URL`. Webhooks are settled in `_apply`: the `(provider, payment_id, type, status)` unique key on `transactions` makes duplicates no-ops; money that cannot be applied (hold expired, wrong amount) records `refund/pending` and triggers `gateway.refund`. `HoldSweeper` (`app/sweeper.py`) expires overdue holds every `HOLD_SWEEP_INTERVAL_SECONDS`; tests set it to 0 and call `expire_holds()` directly.
+`PaymentService` never calls the gateway inside a DB transaction: one UoW to validate the order, gateway call, another UoW to record. `gateway.refund(..., payment_raw=...)` receives the stored `raw_log` of the `payment/succeeded` event because VNPay (`vnp_TransactionNo`/`vnp_PayDate`) and MoMo (`transId`) need their own transaction id to refund. Webhook delivery differs per provider and is handled in `routers/payments.py`: mock/MoMo `POST /payments/webhook` (MoMo expects 204), VNPay IPN `GET /payments/webhook` with the query string passed as `body` and a `{"RspCode"}` JSON reply; `GET /payments/return` only redirects the customer to `PAYMENT_RETURN_URL`. Webhooks are settled in `_apply`: the `(provider, payment_id, type, status)` unique key on `transactions` makes duplicates no-ops; money that cannot be applied (hold expired, wrong amount) records `refund/pending` and triggers `gateway.refund`. `HoldSweeper` (`app/sweeper.py`) calls `expire_holds()` every `HOLD_SWEEP_INTERVAL_SECONDS`; it drains all overdue holds in batches (`OrderRepository.expire_overdue`: one `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED) RETURNING`, stock released in `ticket_type_id` order so parallel sweepers cannot deadlock). `OrderService.get_order` also expires an overdue hold on read (lazy expiry via `_expire`). Tests set the interval to 0 and call `expire_holds()` directly.
 
 QR codes are signed strings from `TicketCodes` (`T<id>.<nonce>.<hmac>`), issued only when tickets become `sold`.
 
+### Sale-opening protection (Waiting room → Rate limit → Load shedding)
+
+- **Waiting room** (`WaitingRoomService`, table `waiting_room_entries`): active for `WAITING_ROOM_MINUTES` after each concert's `sale_open_time`, joinable from `WAITING_ROOM_LEAD_MINUTES` before. FIFO by entry `id`; position k is admitted once `INITIAL_BATCH + ADMIT_PER_MINUTE × minutes since open > k`, so admission is a pure function of time (no background job). Admitted users get a signed JWT pass (`X-Waiting-Room-Pass`, `WAITING_ROOM_PASS_MINUTES` from first admission) that `OrderRequestService.submit` verifies without a DB read; an Idempotency-Key replay needs no pass. `POST/GET /concerts/{id}/waiting-room`.
+- **Rate limit** (`app/api/rate_limit.py`): in-memory token bucket per process, applied as dependencies `limit_per_user(name)` / `limit_per_ip(name)` from `deps.rate_limiters`; 429 `RateLimited` + `Retry-After`. `RATE_LIMIT_*_PER_MINUTE=0` disables (tests do; Locust registers every user from one IP, so pure performance runs should too).
+- **Load shedding** (`app/api/load_shedding.py`): outermost ASGI middleware, 503 `ServerBusy` + `Retry-After` once `MAX_IN_FLIGHT_REQUESTS` are in flight; `/health`, `/payments`, `/mock-gateway` are exempt.
+
 ### Error mapping
 
-Services raise subclasses of `BusinessError`. The handler in `app/main.py` maps them via `ERROR_STATUS` to `{"error": <ClassName>, "detail": <message>}`. When adding an error: define it in `errors.py`, add it to `ERROR_STATUS` (default 400), and add a message in `frontend/api.js`. `DatabaseUnavailable` maps to 503 with `Retry-After`. Auth failures in `get_current_user` are `HTTPException`s (`{"detail": ...}` only).
+Services raise subclasses of `BusinessError`. The handler in `app/main.py` maps them via `ERROR_STATUS` to `{"error": <ClassName>, "detail": <message>}`. When adding an error: define it in `errors.py`, add it to `ERROR_STATUS` (default 400), and add a message in `frontend/api.js`. `DatabaseUnavailable` maps to 503 with `Retry-After`; `RateLimited` (429) and `ServerBusy` (503) come from the API layer, not services. Auth failures in `get_current_user` are `HTTPException`s (`{"detail": ...}` only).
 
 ### Time
 

@@ -74,15 +74,28 @@ class OrderRepository:
             )
         )
 
-    def list_expired_ids(self, now: datetime, limit: int) -> list[int]:
-        return list(
-            self.db.scalars(
-                select(Order.id)
-                .where(Order.status == "held", Order.expires_at <= now)
-                .order_by(Order.expires_at)
-                .limit(limit)
-            )
+    def expire_overdue(self, now: datetime, limit: int) -> list:
+        """Chuyển tối đa `limit` đơn `held` đã quá hạn sang `expired` bằng MỘT câu lệnh,
+        trả về (id, ticket_type_id, quantity) của đúng các đơn vừa đổi để hoàn kho.
+
+        `FOR UPDATE SKIP LOCKED` (PostgreSQL) bỏ qua đơn đang bị transaction khác khóa
+        (đang thanh toán/hủy, hoặc sweeper ở tiến trình khác đang xử lý), nên nhiều sweeper
+        chạy song song không chờ nhau. Điều kiện `status = 'held' AND expires_at <= now`
+        lặp lại trong UPDATE giữ nguyên bảo đảm "mỗi đơn chỉ chuyển trạng thái một lần".
+        SQLite bỏ qua FOR UPDATE; ghi ở SQLite vốn tuần tự.
+        """
+        overdue = (Order.status == "held", Order.expires_at <= now)
+        candidates = (
+            select(Order.id).where(*overdue).order_by(Order.expires_at).limit(limit)
+            .with_for_update(skip_locked=True)
         )
+        return list(self.db.execute(
+            update(Order)
+            .where(Order.id.in_(candidates), *overdue)
+            .values(status="expired")
+            .returning(Order.id, Order.ticket_type_id, Order.quantity)
+            .execution_options(synchronize_session=False)
+        ).all())
 
     # --- Chuyển trạng thái -------------------------------------------------
     # Mỗi lần chuyển là MỘT câu UPDATE có điều kiện trên trạng thái hiện tại. Chỉ

@@ -137,7 +137,7 @@ Một nguyên tắc thiết kế quan trọng là tầng `services` không phụ
 
 Nghiệp vụ đơn hàng dùng **Unit of Work**: `OrderService` mở một UoW cho mỗi lần đặt/hủy vé và commit khi toàn bộ nghiệp vụ thành công. `SqlAlchemyUnitOfWork` quản lý session dùng chung giữa các repository, rollback khi có lỗi hoặc chưa commit và luôn đóng session. Service trả snapshot `OrderData` để kết quả không phụ thuộc session đã đóng. Luồng tài khoản hiện tại vẫn dùng `get_db()`; chi tiết thay đổi và kiểm chứng nằm trong [readmefix.md](readmefix.md).
 
-Xử lý lỗi DB bổ sung giới hạn chờ connection/khóa SQLite, retry toàn bộ nghiệp vụ đơn hàng bằng session mới cho lỗi có thể thử lại an toàn, và circuit breaker dùng chung trong mỗi tiến trình. Khi DB không khả dụng, API trả HTTP 503 kèm `Retry-After`; không tự replay giao dịch mất kết nối có kết quả commit chưa xác định. Cấu hình nằm trong [.env.example](.env.example), phạm vi và giới hạn được mô tả trong báo cáo mục 4 tại [readmefix.md](readmefix.md).
+Xử lý lỗi DB bổ sung giới hạn chờ connection/khóa SQLite, retry toàn bộ nghiệp vụ đơn hàng bằng session mới cho lỗi có thể thử lại an toàn, và circuit breaker dùng chung trong mỗi tiến trình. Khi DB không khả dụng, API trả HTTP 503 kèm `Retry-After`; không tự replay giao dịch mất kết nối có kết quả commit chưa xác định. Cấu hình đọc từ biến môi trường; file `.env` ở thư mục gốc (không commit, chép từ [.env.example](.env.example)) được nạp tự động nhưng không ghi đè biến đã đặt. Phạm vi và giới hạn được mô tả trong báo cáo mục 4 tại [readmefix.md](readmefix.md).
 
 ### 5.3. Data Access Layer – Tầng truy cập dữ liệu
 

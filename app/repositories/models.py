@@ -180,3 +180,26 @@ class Transaction(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     raw_log: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class WaitingRoomEntry(Base):
+    """Một người đang xếp hàng chờ vào luồng mua vé của một concert (Virtual Waiting Room).
+
+    Thứ tự hàng chờ là thứ tự `id` (ai vào trước có id nhỏ hơn: FIFO). Người thứ k (đếm từ 0)
+    được vào khi số suất đã mở ≥ k + 1; suất mở dần theo thời gian kể từ giờ mở bán, nên
+    không cần tiến trình nền nào "gọi tên". `admitted_at` ghi lúc người đó lần đầu thấy mình
+    được vào; thẻ vào cửa hết hạn sau WAITING_ROOM_PASS_MINUTES tính từ mốc này.
+    """
+
+    __tablename__ = "waiting_room_entries"
+    __table_args__ = (
+        UniqueConstraint("concert_id", "user_id", name="uq_waiting_room_concert_user"),
+        Index("ix_waiting_room_concert_id", "concert_id", "id"),  # đếm số người đứng trước
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Không đặt khóa ngoại: admin xóa concert thì hàng chờ cũ chỉ còn là dữ liệu mồ côi vô hại.
+    concert_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    admitted_at: Mapped[datetime | None] = mapped_column(DateTime)

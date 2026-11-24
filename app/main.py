@@ -8,7 +8,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app import config
 from app.api.deps import get_order_request_service, get_order_service
-from app.api.routers import auth, concerts, orders, concert_management, mock_gateway, payments
+from app.api.load_shedding import LoadShedder
+from app.api.rate_limit import RateLimitExceeded
+from app.api.routers import auth, concerts, orders, concert_management, mock_gateway, payments, waiting_room
 from app.order_worker import OrderRequestWorker
 from app.repositories.database import init_db
 from app.services import errors
@@ -42,6 +44,7 @@ app = FastAPI(
 
 app.include_router(auth.router)
 app.include_router(concerts.router)
+app.include_router(waiting_room.router)
 app.include_router(orders.router)
 app.include_router(concert_management.router)
 app.include_router(payments.router)
@@ -65,6 +68,7 @@ ERROR_STATUS = {
     errors.InvalidWebhookSignature: 401,
     errors.PaymentGatewayError: 502,
     errors.RefundWindowClosed: 409,
+    errors.WaitingRoomRequired: 403,
 }
 
 
@@ -82,6 +86,15 @@ def health():
     return {"status": "ok"}
 
 
+@app.exception_handler(RateLimitExceeded)
+def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"error": "RateLimited", "detail": "Too many requests, please retry later"},
+        headers={"Retry-After": str(exc.retry_after)},
+    )
+
+
 @app.exception_handler(DatabaseUnavailable)
 def database_error_handler(request: Request, exc: DatabaseUnavailable):
     return JSONResponse(
@@ -90,6 +103,10 @@ def database_error_handler(request: Request, exc: DatabaseUnavailable):
         headers={"Retry-After": str(exc.retry_after)},
     )
 
+
+# Load shedding bọc ngoài cùng: từ chối request thừa trước khi nó tốn tài nguyên nào khác.
+app.add_middleware(LoadShedder, max_in_flight=config.MAX_IN_FLIGHT_REQUESTS,
+                   retry_after=config.OVERLOAD_RETRY_AFTER_SECONDS)
 
 # Mount frontend sau cùng để không che các route API.
 app.mount(

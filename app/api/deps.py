@@ -5,12 +5,13 @@ và được gắn cho cả router (xem routers/orders.py) — không viết l�
 """
 from collections.abc import Generator
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app import config
 from app.config import ADMIN_EMAILS, JWT_EXPIRE_MINUTES, JWT_SECRET
+from app.api.rate_limit import RateLimiter
 from app.integrations import build_payment_gateway
 from app.order_worker import wakeup as order_queue_wakeup
 from app.repositories.concert_repo import ConcertRepository
@@ -28,6 +29,7 @@ from app.services.order_service import OrderService
 from app.services.payment_gateway import PaymentGateway
 from app.services.payment_service import PaymentService
 from app.services.ticket_codes import TicketCodes
+from app.services.waiting_room_service import WaitingRoomService
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -65,11 +67,23 @@ def get_order_service() -> OrderService:
     )
 
 
+def get_waiting_room_service() -> WaitingRoomService:
+    return WaitingRoomService(
+        _uow, config.WAITING_ROOM_SECRET, execute=database_policy.run,
+        window_minutes=config.WAITING_ROOM_MINUTES,
+        lead_minutes=config.WAITING_ROOM_LEAD_MINUTES,
+        initial_batch=config.WAITING_ROOM_INITIAL_BATCH,
+        admit_per_minute=config.WAITING_ROOM_ADMIT_PER_MINUTE,
+        pass_minutes=config.WAITING_ROOM_PASS_MINUTES,
+    )
+
+
 def get_order_request_service() -> OrderRequestService:
     return OrderRequestService(
         _uow, get_order_service(), execute=database_policy.run,
         max_attempts=config.ORDER_REQUEST_MAX_ATTEMPTS,
         on_submitted=order_queue_wakeup.set,
+        waiting_room=get_waiting_room_service(),
     )
 
 
@@ -90,16 +104,20 @@ def get_payment_service(gateway: PaymentGateway = Depends(get_payment_gateway)) 
 _bearer = HTTPBearer(auto_error=False)
 
 
-def get_current_user(
+def current_user_id(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
-) -> User:
+) -> int:
+    """Chỉ kiểm tra JWT, không chạm DB (rate limit theo user dùng cái này)."""
     if credentials is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing bearer token")
-    # Verify JWT before accessing DB; invalid tokens must still return 401.
     try:
-        user_id = AuthService(None, JWT_SECRET, JWT_EXPIRE_MINUTES).verify_token(credentials.credentials)
+        return AuthService(None, JWT_SECRET, JWT_EXPIRE_MINUTES).verify_token(credentials.credentials)
     except InvalidToken:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
+
+
+def get_current_user(user_id: int = Depends(current_user_id)) -> User:
+    # JWT đã được kiểm tra trước khi chạm DB; token sai vẫn trả 401.
 
     def load_user():
         # Kết thúc session xác thực trước khi bắt đầu UoW nghiệp vụ.
@@ -116,3 +134,26 @@ def get_admin_user(user: User = Depends(get_current_user)) -> User:
     if user.email.lower() not in ADMIN_EMAILS:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrator access required")
     return user
+
+
+# --- Rate limit (token bucket trong bộ nhớ, mỗi tiến trình một bộ) --------------
+rate_limiters = {
+    "auth": RateLimiter(config.RATE_LIMIT_AUTH_PER_MINUTE),
+    "orders": RateLimiter(config.RATE_LIMIT_ORDERS_PER_MINUTE),
+    "order_status": RateLimiter(config.RATE_LIMIT_ORDER_STATUS_PER_MINUTE),
+    "waiting_room": RateLimiter(config.RATE_LIMIT_WAITING_ROOM_PER_MINUTE),
+}
+
+
+def limit_per_user(name: str):
+    """Dependency: mỗi user tối đa N request/phút cho nhóm endpoint `name`."""
+    def dependency(user_id: int = Depends(current_user_id)) -> None:
+        rate_limiters[name].hit(f"user:{user_id}")
+    return dependency
+
+
+def limit_per_ip(name: str):
+    """Dependency: mỗi IP tối đa N request/phút (endpoint chưa đăng nhập: login, register)."""
+    def dependency(request: Request) -> None:
+        rate_limiters[name].hit(f"ip:{request.client.host if request.client else 'unknown'}")
+    return dependency

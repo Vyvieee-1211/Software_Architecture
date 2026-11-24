@@ -5,7 +5,9 @@ import segno
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
 
 from app import config
-from app.api.deps import get_current_user, get_order_request_service, get_order_service, get_payment_service
+from app.api.deps import (
+    get_current_user, get_order_request_service, get_order_service, get_payment_service, limit_per_user,
+)
 from app.api.schemas import (
     CreateOrderRequest, OrderRequestResponse, OrderResponse, PaymentResponse, TicketResponse,
 )
@@ -37,6 +39,16 @@ IdempotencyKey = Annotated[
 ]
 
 
+WaitingRoomPass = Annotated[
+    str | None,
+    Header(
+        alias="X-Waiting-Room-Pass",
+        description="Thẻ vào cửa lấy từ `GET /concerts/{id}/waiting-room` (status admitted). Bắt buộc "
+                    "trong đợt mở bán có waiting room; ngoài đợt đó thì bỏ qua.",
+    ),
+]
+
+
 def request_status_url(request_id: int) -> str:
     return f"/orders/requests/{request_id}"
 
@@ -59,17 +71,22 @@ def _request_response(response: Response, request: OrderRequestData, order=None)
         202: {"description": "Đã nhận yêu cầu. Hỏi `GET /orders/requests/{id}` (header Location) "
                              "sau `Retry-After` giây cho đến khi status là succeeded/failed."},
         400: {"description": "Chưa mở bán (SaleNotOpen) hoặc concert đã diễn ra (SaleClosed)."},
+        403: {"description": "Đang trong đợt mở bán có waiting room mà thiếu/sai pass (WaitingRoomRequired)."},
         409: {"description": "Đã hết vé, hoặc Idempotency-Key đã dùng cho yêu cầu khác."},
+        429: {"description": "Gửi quá nhiều yêu cầu đặt mua (RateLimited), xem Retry-After."},
     },
+    dependencies=[Depends(limit_per_user("orders"))],
 )
 def create_order(
     body: CreateOrderRequest,
     response: Response,
     idempotency_key: IdempotencyKey = None,
+    waiting_room_pass: WaitingRoomPass = None,
     user: User = Depends(get_current_user),
     svc: OrderRequestService = Depends(get_order_request_service),
 ):
-    request, created = svc.submit(user.id, body.ticket_type_id, body.quantity, idempotency_key)
+    request, created = svc.submit(user.id, body.ticket_type_id, body.quantity, idempotency_key,
+                                  waiting_room_pass)
     if not created:
         response.headers["Idempotent-Replayed"] = "true"
     return _request_response(response, request)
@@ -79,6 +96,7 @@ def create_order(
     "/requests/{request_id}",
     response_model=OrderRequestResponse,
     summary="Trạng thái yêu cầu giữ chỗ: pending → succeeded (kèm đơn) | failed (kèm lỗi)",
+    dependencies=[Depends(limit_per_user("order_status"))],
 )
 def get_order_request(
     request_id: int,

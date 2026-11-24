@@ -8,6 +8,10 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ["HOLD_SWEEP_INTERVAL_SECONDS"] = "0"
 # Không chạy worker hàng đợi đặt vé: test tự gọi drain() để xử lý một cách tất định.
 os.environ["ORDER_WORKERS"] = "0"
+# Tắt rate limit: test đăng ký nhiều user từ cùng một "IP"; rate limit có test riêng
+# (tests/test_waiting_room.py) tự gắn bộ giới hạn nhỏ.
+for _name in ("AUTH", "ORDERS", "ORDER_STATUS", "WAITING_ROOM"):
+    os.environ[f"RATE_LIMIT_{_name}_PER_MINUTE"] = "0"
 
 from app.repositories.models import TicketType  # noqa: E402
 from app.repositories.ticket_repo import TicketRepository  # noqa: E402

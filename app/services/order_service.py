@@ -186,20 +186,34 @@ class OrderService:
 
     # --- Hết hạn giữ chỗ ---------------------------------------------------
 
-    def expire_holds(self, limit: int = 100) -> int:
-        """Chuyển các đơn giữ chỗ quá hạn sang `expired` và hoàn kho. Trả về số đơn đã xử lý.
+    def expire_holds(self, batch_size: int = 100) -> int:
+        """Chuyển MỌI đơn giữ chỗ đã quá hạn sang `expired` và hoàn kho. Trả về số đơn đã xử lý.
 
-        Mỗi đơn một transaction riêng: một đơn lỗi không chặn các đơn còn lại, và nhiều
-        tiến trình quét cùng lúc cũng an toàn vì chỉ một bên đổi được trạng thái.
+        Xử lý theo lô `batch_size` đơn, mỗi lô một transaction ngắn, lặp đến khi một lô
+        trả về ít hơn `batch_size` (hết đơn quá hạn, hoặc phần còn lại đang bị tiến trình
+        khác khóa). Trước đây mỗi chu kỳ sweeper chỉ xử lý 100 đơn, nên 500 đơn hết hạn
+        cùng lúc phải chờ 5 chu kỳ (~20 giây) mới về kho đủ.
         """
-        order_ids = self.execute(lambda: self._expired_ids(limit))
-        return sum(1 for order_id in order_ids if self.execute(lambda: self._expire(order_id)))
+        total = 0
+        while True:
+            expired = self.execute(lambda: self._expire_batch(batch_size))
+            total += expired
+            if expired < batch_size:
+                return total
 
-    def _expired_ids(self, limit):
+    def _expire_batch(self, limit: int) -> int:
         with self.uow_factory() as uow:
-            return uow.orders.list_expired_ids(self.clock(), limit)
+            expired = uow.orders.expire_overdue(self.clock(), limit)
+            # Hoàn kho theo thứ tự hạng vé tăng dần: hai sweeper (hai tiến trình) cùng khóa
+            # các dòng ticket_types theo một thứ tự nên không deadlock lẫn nhau.
+            for order in sorted(expired, key=lambda o: (o.ticket_type_id, o.id)):
+                release_hold(uow, order)
+            uow.commit()
+            return len(expired)
 
     def _expire(self, order_id) -> bool:
+        """Hết hạn MỘT đơn (dùng khi đọc thấy đơn đã quá hạn). An toàn khi chạy đua với
+        sweeper/thanh toán/hủy vì UPDATE có điều kiện chỉ để một bên thắng."""
         with self.uow_factory() as uow:
             if not uow.orders.mark_expired(order_id, self.clock()):
                 return False  # vừa được thanh toán / hủy / tiến trình khác xử lý
@@ -221,7 +235,14 @@ class OrderService:
 
     def _get_order(self, user_id, order_id):
         with self.uow_factory() as uow:
-            return OrderData.from_order(self._owned_order(uow, user_id, order_id))
+            order = OrderData.from_order(self._owned_order(uow, user_id, order_id))
+        if order.status == "held" and order.expires_at <= self.clock():
+            # Hết hạn lười: không chờ chu kỳ sweeper kế tiếp. Dù _expire thắng hay thua cuộc
+            # đua (vd. webhook vừa chốt thanh toán), đọc lại để trả đúng trạng thái trong DB.
+            self._expire(order_id)
+            with self.uow_factory() as uow:
+                order = OrderData.from_order(self._owned_order(uow, user_id, order_id))
+        return order
 
     def list_tickets(self, user_id: int, order_id: int):
         """Các vé của đơn. Mã QR chỉ có khi đơn đã thanh toán."""
