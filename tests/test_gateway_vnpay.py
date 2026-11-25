@@ -211,3 +211,13 @@ def test_vnpay_return_url_settles_order_without_ipn(client, gateway, api_calls, 
     # Ảnh QR là file SVG độc lập (có xmlns) để thẻ <img> hiển thị được.
     qr = client.get(f"/orders/{order['id']}/tickets/{ticket['id']}/qr", headers=h)
     assert qr.status_code == 200 and b'xmlns="http://www.w3.org/2000/svg"' in qr.content
+
+
+def test_payment_return_url_survives_env_loaders_that_strip_hash():
+    """VS Code (python.terminal.useEnvFile) coi `#` trong .env là chú thích: còn lại gốc web."""
+    from app.config import payment_return_url
+    base = "http://localhost:8000"
+    assert payment_return_url(None, base) == "http://localhost:8000/#/orders"
+    assert payment_return_url("", base) == "http://localhost:8000/#/orders"
+    assert payment_return_url("http://localhost:8000/", base) == "http://localhost:8000/#/orders"
+    assert payment_return_url("https://web.test/#/orders", base) == "https://web.test/#/orders"

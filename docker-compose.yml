@@ -24,7 +24,6 @@ services:
       # Sandbox: PAYMENT_PROVIDER=vnpay (hoặc vnpay,mock để khách chọn cổng) và điền VNPAY_* trong .env.
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
       PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-change-me-payment-webhook-secret}
-      PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-http://localhost:8000/#/orders}
       VNPAY_TMN_CODE: ${VNPAY_TMN_CODE:-}
       VNPAY_HASH_SECRET: ${VNPAY_HASH_SECRET:-}
       TICKET_QR_SECRET: change-me-ticket-qr-secret

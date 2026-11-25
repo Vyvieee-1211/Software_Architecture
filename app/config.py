@@ -121,7 +121,15 @@ PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or os.getenv("RENDER_EXTERNAL_UR
                    or "http://localhost:8000").rstrip("/")
 # Trả tiền xong, VNPay đưa khách quay về /payments/return/vnpay, rồi được chuyển
 # tiếp tới địa chỉ này. Trạng thái đơn vẫn do IPN quyết định; trang này chỉ hiển thị.
-PAYMENT_RETURN_URL = os.getenv("PAYMENT_RETURN_URL") or f"{PUBLIC_BASE_URL}/#/orders"
+# Không cần khai: mặc định là trang "Vé của tôi" của PUBLIC_BASE_URL. Nhiều trình nạp .env
+# (VS Code `python.terminal.useEnvFile`, docker) coi `#` là bắt đầu chú thích và cắt mất
+# "#/orders", nên địa chỉ không có `#` được hiểu là gốc web và tự nối thêm "/#/orders".
+def payment_return_url(raw: str | None, public_base_url: str) -> str:
+    url = raw or public_base_url
+    return url if "#" in url else url.rstrip("/") + "/#/orders"
+
+
+PAYMENT_RETURN_URL = payment_return_url(os.getenv("PAYMENT_RETURN_URL"), PUBLIC_BASE_URL)
 # Thời gian chờ tối đa một lời gọi HTTP tới cổng thanh toán thật (giây).
 PAYMENT_GATEWAY_TIMEOUT_SECONDS = _number("PAYMENT_GATEWAY_TIMEOUT_SECONDS", 10, float, 0.1)
 
