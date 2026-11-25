@@ -5,8 +5,10 @@ và trả lời đúng định dạng cổng đó chờ. Việc chốt đơn lu�
 PaymentService.handle_webhook.
 
 - Mock / MoMo: POST, kết quả trong thân JSON. MoMo chờ HTTP 204, ngược lại sẽ gửi lại.
-- VNPay: GET, kết quả trong query string; VNPay chờ JSON {"RspCode", "Message"} với mã
-  "00" nghĩa là hệ thống đã ghi nhận.
+  Có thể bật nhiều cổng cùng lúc, nên mỗi cổng có đường riêng `/payments/webhook/{cổng}`
+  (`/payments/webhook` không kèm tên là cổng mặc định).
+- VNPay: GET /payments/webhook, kết quả trong query string; VNPay chờ JSON
+  {"RspCode", "Message"} với mã "00" nghĩa là hệ thống đã ghi nhận.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
@@ -14,9 +16,9 @@ from fastapi.responses import RedirectResponse
 
 from app import config
 from app.api.deps import get_payment_service
-from app.api.schemas import WebhookResponse
+from app.api.schemas import PaymentProvidersResponse, WebhookResponse
 from app.integrations import momo, vnpay
-from app.services.errors import InvalidWebhookSignature, NotFound
+from app.services.errors import BusinessError, InvalidWebhookSignature, NotFound
 from app.services.payment_service import PaymentService, WebhookOutcome
 
 router = APIRouter(prefix="/payments", tags=["payments"])
@@ -25,6 +27,25 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 def webhook_response(outcome: WebhookOutcome) -> WebhookResponse:
     return WebhookResponse(result=outcome.result, order_id=outcome.order.id,
                            order_status=outcome.order.status)
+
+
+@router.get("/providers", response_model=PaymentProvidersResponse,
+            summary="Các cổng thanh toán khách được chọn")
+def payment_providers(svc: PaymentService = Depends(get_payment_service)):
+    return PaymentProvidersResponse(providers=svc.providers)
+
+
+@router.post(
+    "/webhook/{provider}",
+    response_model=WebhookResponse,
+    summary="Cổng `provider` báo kết quả (POST)",
+    responses={204: {"description": "Khi provider=momo."}, 401: {"description": "Sai chữ ký."}},
+)
+async def provider_webhook(provider: str, request: Request,
+                           svc: PaymentService = Depends(get_payment_service)):
+    if provider not in svc.gateways:
+        raise HTTPException(status.HTTP_404_NOT_FOUND)
+    return await _post_webhook(request, svc, provider)
 
 
 @router.post(
@@ -38,11 +59,15 @@ def webhook_response(outcome: WebhookOutcome) -> WebhookResponse:
     },
 )
 async def payment_webhook(request: Request, svc: PaymentService = Depends(get_payment_service)):
+    return await _post_webhook(request, svc, svc.gateway.name)
+
+
+async def _post_webhook(request: Request, svc: PaymentService, provider: str):
     # Chữ ký được tính trên đúng từng byte cổng gửi, nên phải đọc body thô.
     body = await request.body()
     headers = {name.lower(): value for name, value in request.headers.items()}
-    outcome = await run_in_threadpool(svc.handle_webhook, headers, body)
-    if isinstance(svc.gateway, momo.MoMoGateway):
+    outcome = await run_in_threadpool(svc.handle_webhook, headers, body, provider)
+    if isinstance(svc.gateways[provider], momo.MoMoGateway):
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     return webhook_response(outcome)
 
@@ -57,12 +82,14 @@ async def payment_webhook(request: Request, svc: PaymentService = Depends(get_pa
     },
 )
 async def vnpay_ipn(request: Request, svc: PaymentService = Depends(get_payment_service)) -> dict:
-    if not isinstance(svc.gateway, vnpay.VNPayGateway):
+    provider = next((name for name, gw in svc.gateways.items()
+                     if isinstance(gw, vnpay.VNPayGateway)), None)
+    if provider is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     # Chữ ký VNPay tính trên các tham số của query string, nên đưa nguyên query vào làm body.
     body = request.url.query.encode()
     try:
-        outcome = await run_in_threadpool(svc.handle_webhook, {}, body)
+        outcome = await run_in_threadpool(svc.handle_webhook, {}, body, provider)
     except InvalidWebhookSignature:
         return vnpay.ipn_reply(*vnpay.IPN_REPLY_SIGNATURE)
     except NotFound:
@@ -71,7 +98,20 @@ async def vnpay_ipn(request: Request, svc: PaymentService = Depends(get_payment_
 
 
 @router.get("/return", include_in_schema=False)
-def payment_return() -> RedirectResponse:
-    """Cổng đưa khách về đây sau khi trả tiền xong. Chỉ chuyển tiếp về giao diện; trạng
-    thái đơn do IPN quyết định, giao diện hỏi lại GET /orders/{id} để hiển thị."""
-    return RedirectResponse(config.PAYMENT_RETURN_URL, status_code=status.HTTP_303_SEE_OTHER)
+@router.get("/return/{provider}", include_in_schema=False)
+async def payment_return(request: Request, provider: str | None = None,
+                         svc: PaymentService = Depends(get_payment_service)) -> RedirectResponse:
+    """Cổng đưa khách về đây sau khi trả tiền xong, kèm kết quả đã ký.
+
+    Nếu chữ ký hợp lệ thì chốt đơn luôn (giống IPN, trùng lặp là vô hại) rồi đưa khách
+    tới trang đơn đó; nhờ vậy sandbox chạy được trên localhost dù IPN không gọi tới.
+    Không đọc được kết quả thì chỉ chuyển về danh sách đơn.
+    """
+    target = config.PAYMENT_RETURN_URL
+    try:
+        outcome = await run_in_threadpool(svc.handle_return, request.url.query, provider)
+    except BusinessError:
+        outcome = None
+    if outcome is not None:
+        target = f"{target.rstrip('/')}/{outcome.order.id}"
+    return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)

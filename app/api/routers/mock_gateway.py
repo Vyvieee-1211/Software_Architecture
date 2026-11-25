@@ -1,4 +1,4 @@
-"""Trang thanh toán của cổng GIẢ LẬP. Chỉ được gắn khi PAYMENT_PROVIDER=mock.
+"""Trang thanh toán của cổng GIẢ LẬP. Chỉ được gắn khi PAYMENT_PROVIDER có "mock".
 
 Đóng vai bên thứ ba: khách mở `payment_url`, chọn kết quả, rồi "cổng" gửi webhook có
 chữ ký về hệ thống — đi qua đúng đường xử lý của webhook thật (PaymentService.handle_webhook).
@@ -8,7 +8,7 @@ from html import escape
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 
-from app.api.deps import get_payment_gateway, get_payment_service
+from app.api.deps import get_payment_gateways, get_payment_service
 from app.api.routers.payments import webhook_response
 from app.api.schemas import MockPayRequest, WebhookResponse
 from app.integrations.mock_payment import MockPaymentGateway
@@ -17,8 +17,9 @@ from app.services.payment_service import PaymentService
 router = APIRouter(prefix="/mock-gateway", tags=["mock payment gateway"])
 
 
-def get_mock_gateway(gateway=Depends(get_payment_gateway)) -> MockPaymentGateway:
-    if not isinstance(gateway, MockPaymentGateway):
+def get_mock_gateway(gateways=Depends(get_payment_gateways)) -> MockPaymentGateway:
+    gateway = next((gw for gw in gateways.values() if isinstance(gw, MockPaymentGateway)), None)
+    if gateway is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND)
     return gateway
 
@@ -71,4 +72,4 @@ def pay(
 ):
     payment_id, amount = gateway.read_checkout_token(body.token)
     headers, webhook_body = gateway.build_webhook(payment_id, amount, body.result == "success")
-    return webhook_response(svc.handle_webhook(headers, webhook_body))
+    return webhook_response(svc.handle_webhook(headers, webhook_body, provider=gateway.name))

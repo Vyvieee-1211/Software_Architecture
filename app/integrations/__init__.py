@@ -13,15 +13,28 @@ def _required(name: str) -> str:
     return value
 
 
-def build_payment_gateway() -> PaymentGateway:
-    """Chọn adapter theo PAYMENT_PROVIDER. Thêm cổng mới = thêm một nhánh ở đây."""
-    provider = config.PAYMENT_PROVIDER
+def payment_providers() -> list[str]:
+    """Tên các cổng trong PAYMENT_PROVIDER (vd. "vnpay,momo"), theo đúng thứ tự đó."""
+    names = [name.strip().lower() for name in config.PAYMENT_PROVIDER.split(",") if name.strip()]
+    return list(dict.fromkeys(names)) or ["mock"]
+
+
+def build_payment_gateways() -> dict[str, PaymentGateway]:
+    """Mọi cổng liệt kê trong PAYMENT_PROVIDER, cổng đầu tiên là mặc định."""
+    return {name: build_payment_gateway(name) for name in payment_providers()}
+
+
+def build_payment_gateway(provider: str | None = None) -> PaymentGateway:
+    """Dựng adapter của một cổng (mặc định: cổng đầu tiên). Thêm cổng mới = thêm một nhánh ở đây."""
+    provider = provider or payment_providers()[0]
     if provider == "mock":
         return MockPaymentGateway(config.PAYMENT_WEBHOOK_SECRET, config.PUBLIC_BASE_URL)
 
     # Cổng thật gọi về hai địa chỉ: IPN báo kết quả (máy-máy) và trang đưa khách quay lại.
-    ipn_url = f"{config.PUBLIC_BASE_URL}/payments/webhook"
-    return_url = f"{config.PUBLIC_BASE_URL}/payments/return"
+    # Mỗi cổng một đường riêng để khi bật nhiều cổng, hệ thống biết kết quả thuộc cổng nào.
+    # Riêng IPN của VNPay là GET /payments/webhook khai trong trang quản trị merchant.
+    ipn_url = f"{config.PUBLIC_BASE_URL}/payments/webhook/{provider}"
+    return_url = f"{config.PUBLIC_BASE_URL}/payments/return/{provider}"
     if provider == "vnpay":
         return VNPayGateway(
             tmn_code=_required("VNPAY_TMN_CODE"), hash_secret=_required("VNPAY_HASH_SECRET"),

@@ -130,6 +130,10 @@ class VNPayGateway:
         except (KeyError, InvalidOperation) as exc:
             raise InvalidWebhookSignature("malformed VNPay IPN") from exc
 
+    def parse_return(self, query: str) -> PaymentEvent:
+        """Khách được đưa về vnp_ReturnUrl với đúng bộ tham số đã ký như IPN."""
+        return self.parse_webhook({}, query.encode())
+
     def refund(self, payment_id: str, amount: Decimal, reason: str,
                payment_raw: str = "") -> RefundResult:
         try:

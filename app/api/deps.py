@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app import config
 from app.config import ADMIN_EMAILS, JWT_EXPIRE_MINUTES, JWT_SECRET
 from app.api.rate_limit import RateLimiter
-from app.integrations import build_payment_gateway
+from app.integrations import build_payment_gateways
 from app.order_worker import wakeup as order_queue_wakeup
 from app.repositories.database import SessionLocal
 from app.repositories.models import User
@@ -101,7 +101,9 @@ def get_order_request_service() -> OrderRequestService:
 
 
 # Adapter cổng thanh toán và bộ ký mã QR không có trạng thái theo request: tạo một lần.
-payment_gateway = build_payment_gateway()
+payment_gateways = build_payment_gateways()
+# Cổng mặc định (cổng đầu tiên trong PAYMENT_PROVIDER). Test thay biến này bằng monkeypatch.
+payment_gateway = next(iter(payment_gateways.values()))
 ticket_codes = TicketCodes(config.TICKET_QR_SECRET)
 
 
@@ -109,8 +111,17 @@ def get_payment_gateway() -> PaymentGateway:
     return payment_gateway
 
 
-def get_payment_service(gateway: PaymentGateway = Depends(get_payment_gateway)) -> PaymentService:
-    return PaymentService(_uow, gateway, ticket_codes.issue, execute=database_policy.run,
+def get_payment_gateways() -> dict[str, PaymentGateway]:
+    """Mọi cổng đang bật, cổng mặc định (`payment_gateway`) đứng đầu."""
+    gateways = {payment_gateway.name: payment_gateway}
+    gateways.update((name, gw) for name, gw in payment_gateways.items() if name != payment_gateway.name)
+    return gateways
+
+
+def get_payment_service(
+    gateways: dict[str, PaymentGateway] = Depends(get_payment_gateways),
+) -> PaymentService:
+    return PaymentService(_uow, gateways, ticket_codes.issue, execute=database_policy.run,
                           refund_cutoff_hours=config.REFUND_CUTOFF_HOURS)
 
 

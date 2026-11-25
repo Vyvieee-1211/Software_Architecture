@@ -148,6 +148,17 @@ class TicketResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PayRequest(BaseModel):
+    provider: str | None = Field(
+        default=None,
+        description="Cổng khách chọn (một trong GET /payments/providers); bỏ trống = cổng mặc định.",
+    )
+
+
+class PaymentProvidersResponse(BaseModel):
+    providers: list[str] = Field(description="Các cổng đang bật, cổng mặc định đứng đầu.")
+
+
 class PaymentResponse(BaseModel):
     order_id: int
     payment_id: str

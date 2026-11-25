@@ -1,0 +1,64 @@
+# Render Blueprint: tạo web service (build từ Dockerfile) + PostgreSQL bằng một lần bấm.
+# Hướng dẫn từng bước: docs/deploy-render.md
+#
+# Địa chỉ công khai (PUBLIC_BASE_URL) lấy tự động từ RENDER_EXTERNAL_URL, không cần khai.
+# Các biến `sync: false` được hỏi khi tạo Blueprint (có thể để trống, điền sau ở tab Environment).
+
+databases:
+  - name: hit-the-vibe-db
+    plan: free
+    region: singapore
+    databaseName: concert
+    user: concert
+
+services:
+  - type: web
+    name: hit-the-vibe
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hit-the-vibe-db
+          property: connectionString
+      # Nạp 2 concert mẫu + tài khoản demo lần đầu khởi động (đã có dữ liệu thì bỏ qua).
+      - key: SEED_ON_START
+        value: "true"
+
+      # Khoá bí mật: Render tự sinh chuỗi ngẫu nhiên, không dùng giá trị dev.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TICKET_QR_SECRET
+        generateValue: true
+      - key: PAYMENT_WEBHOOK_SECRET
+        generateValue: true
+      - key: WAITING_ROOM_SECRET
+        generateValue: true
+
+      # Gói free giới hạn kết nối và RAM: pool nhỏ là đủ cho một tiến trình.
+      - key: DB_POOL_SIZE
+        value: "5"
+      - key: DB_MAX_OVERFLOW
+        value: "5"
+
+      # Tài khoản được quản lý concert. Web công khai: đổi sang email của nhóm nếu không muốn
+      # ai đăng nhập demo@example.com cũng sửa được concert.
+      - key: ADMIN_EMAILS
+        value: demo@example.com
+
+      # Cổng thanh toán: bắt đầu bằng mock để web chạy ngay; có key thì đổi thành
+      # vnpay | momo | vnpay,momo (cổng đầu là mặc định) trong tab Environment.
+      - key: PAYMENT_PROVIDER
+        value: mock
+      - key: VNPAY_TMN_CODE
+        sync: false
+      - key: VNPAY_HASH_SECRET
+        sync: false
+      - key: MOMO_PARTNER_CODE
+        sync: false
+      - key: MOMO_ACCESS_KEY
+        sync: false
+      - key: MOMO_SECRET_KEY
+        sync: false

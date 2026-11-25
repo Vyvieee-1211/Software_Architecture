@@ -63,6 +63,10 @@ class PaymentGatewayError(BusinessError):
     """Cổng thanh toán từ chối hoặc không phản hồi."""
 
 
+class UnsupportedPaymentProvider(BusinessError):
+    """Khách chọn cổng thanh toán không được bật (PAYMENT_PROVIDER)."""
+
+
 class RefundWindowClosed(BusinessError):
     """Đã quá hạn hoàn tiền: quá sát (hoặc sau) giờ diễn."""
 

@@ -62,6 +62,7 @@ const messages = {
   SaleClosed: 'Concert đã diễn ra, không còn nhận đặt vé.',
   RefundWindowClosed: 'Đã quá hạn hoàn tiền: chỉ huỷ được đơn đã thanh toán trước giờ diễn ít nhất 24 giờ.',
   PaymentGatewayError: 'Cổng thanh toán không phản hồi. Vui lòng thử lại sau.',
+  UnsupportedPaymentProvider: 'Cổng thanh toán này hiện không khả dụng. Vui lòng chọn cổng khác.',
   WaitingRoomRequired: 'Đang trong đợt mở bán: bạn cần xếp hàng chờ tới lượt rồi mới đặt vé được.',
   RateLimited: 'Bạn thao tác quá nhanh. Vui lòng chờ vài giây rồi thử lại.',
   ServerBusy: 'Hệ thống đang quá tải. Vui lòng thử lại sau ít giây.',
@@ -202,7 +203,9 @@ export const api = {
   waitForOrder,
   order: (id) => request(`/orders/${id}`, { auth: true }),
   // Tạo giao dịch ở cổng thanh toán; gọi lại khi đang chờ thì server trả lại đúng giao dịch cũ.
-  payOrder: (id) => request(`/orders/${id}/pay`, { method: 'POST', auth: true }),
+  paymentProviders: () => request('/payments/providers'),
+  // `provider`: cổng khách chọn; bỏ trống thì server dùng cổng mặc định.
+  payOrder: (id, provider) => request(`/orders/${id}/pay`, { method: 'POST', auth: true, ...(provider ? { body: { provider } } : {}) }),
   orderTickets: (id) => request(`/orders/${id}/tickets`, { auth: true }),
   ticketQr,
   cancelOrder: (id) => request(`/orders/${id}`, { method: 'DELETE', auth: true }),

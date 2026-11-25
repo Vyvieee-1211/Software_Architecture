@@ -17,6 +17,7 @@ import json
 import uuid
 from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
+from urllib.parse import parse_qsl
 
 import httpx
 
@@ -104,6 +105,11 @@ class MoMoGateway:
         except (ValueError, TypeError, InvalidOperation) as exc:
             raise InvalidWebhookSignature("malformed MoMo IPN") from exc
 
+    def parse_return(self, query: str) -> PaymentEvent:
+        """redirectUrl nhận cùng các trường (và chữ ký) như IPN, nhưng nằm trong query string."""
+        params = dict(parse_qsl(query, keep_blank_values=True))
+        return self.parse_webhook({}, json.dumps(params, ensure_ascii=False).encode())
+
     def refund(self, payment_id: str, amount: Decimal, reason: str,
                payment_raw: str = "") -> RefundResult:
         try:
@@ -112,6 +118,8 @@ class MoMoGateway:
             trans_id = None
         if trans_id is None:
             raise PaymentGatewayError("MoMo refund needs transId from the IPN")
+        if isinstance(trans_id, str) and trans_id.isdigit():
+            trans_id = int(trans_id)  # chốt qua redirectUrl thì transId là chuỗi trong query
 
         refund_id = f"rf-{uuid.uuid4().hex}"
         fields = {

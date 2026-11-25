@@ -189,3 +189,25 @@ def test_post_webhook_and_get_ipn_are_provider_specific(client, gateway, monkeyp
     monkeypatch.setattr(deps, "payment_gateway", gateway)
     r = client.post("/payments/webhook", content=b"")
     assert r.status_code == 401 and r.json()["error"] == "InvalidWebhookSignature"
+
+
+def test_vnpay_return_url_settles_order_without_ipn(client, gateway, api_calls, monkeypatch):
+    """Sandbox trên localhost: IPN không tới được, khách quay về /payments/return là đủ chốt đơn."""
+    monkeypatch.setattr(deps, "payment_gateway", gateway)
+    h = auth_header(client)
+    order = hold(client, h, quantity=1)
+    payment = start_payment(client, h, order["id"])
+    query = ipn_query(payment["payment_id"], 100)
+
+    r = client.get("/payments/return?" + query, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].endswith(f"/#/orders/{order['id']}")
+    assert client.get(f"/orders/{order['id']}", headers=h).json()["status"] == "paid"
+    (ticket,) = client.get(f"/orders/{order['id']}/tickets", headers=h).json()
+
+    # IPN tới sau (hoặc khách tải lại trang quay về): trùng lặp, không xuất vé lần hai.
+    assert client.get("/payments/webhook?" + query).json()["RspCode"] == "02"
+    assert client.get("/payments/return?" + query, follow_redirects=False).status_code == 303
+
+    # Ảnh QR là file SVG độc lập (có xmlns) để thẻ <img> hiển thị được.
+    qr = client.get(f"/orders/{order['id']}/tickets/{ticket['id']}/qr", headers=h)
+    assert qr.status_code == 200 and b'xmlns="http://www.w3.org/2000/svg"' in qr.content

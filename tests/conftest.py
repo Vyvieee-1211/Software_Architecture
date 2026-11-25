@@ -15,6 +15,8 @@ for _name in ("AUTH", "ORDERS", "ORDER_STATUS", "WAITING_ROOM"):
 # Tắt cache danh sách concert để test đọc thấy ngay dữ liệu vừa ghi; cache có test riêng
 # (tests/test_catalog_cache.py) tự bật lại.
 os.environ["CATALOG_CACHE_TTL_SECONDS"] = "0"
+# Test dùng cổng giả lập, không phụ thuộc cổng thật bật trong .env của máy chạy test.
+os.environ["PAYMENT_PROVIDER"] = "mock"
 
 from app.repositories.models import TicketType  # noqa: E402
 from app.repositories.ticket_repo import TicketRepository  # noqa: E402

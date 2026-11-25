@@ -51,21 +51,20 @@ class TransactionRepository:
             )
         )
 
-    def latest_pending_payment(self, order_id: int) -> Transaction | None:
-        return self._latest_payment(order_id, "pending")
+    def latest_pending_payment(self, order_id: int, provider: str | None = None) -> Transaction | None:
+        return self._latest_payment(order_id, "pending", provider)
 
     def succeeded_payment(self, order_id: int) -> Transaction | None:
         """Giao dịch đã thu tiền của đơn (đơn `paid` có đúng một dòng như vậy)."""
         return self._latest_payment(order_id, "succeeded")
 
-    def _latest_payment(self, order_id: int, status: str) -> Transaction | None:
-        return self.db.scalar(
-            select(Transaction)
-            .where(Transaction.order_id == order_id, Transaction.type == "payment",
-                   Transaction.status == status)
-            .order_by(Transaction.id.desc())
-            .limit(1)
-        )
+    def _latest_payment(self, order_id: int, status: str,
+                        provider: str | None = None) -> Transaction | None:
+        query = select(Transaction).where(Transaction.order_id == order_id,
+                                          Transaction.type == "payment", Transaction.status == status)
+        if provider is not None:
+            query = query.where(Transaction.provider == provider)
+        return self.db.scalar(query.order_by(Transaction.id.desc()).limit(1))
 
     def list_by_order(self, order_id: int) -> list[Transaction]:
         return list(

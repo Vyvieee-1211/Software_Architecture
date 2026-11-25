@@ -346,7 +346,13 @@ Mở terminal khác, kích hoạt cùng môi trường ảo rồi chạy:
 python -m scripts.seed
 ```
 
-### 7.4. Tài liệu API
+### 7.4. Đưa lên Render (web công khai)
+
+`render.yaml` tạo sẵn web service (build từ `Dockerfile`) và PostgreSQL miễn phí trên Render.
+Có địa chỉ công khai cố định thì đăng ký được cổng thanh toán sandbox (VNPay cần website và IPN URL).
+Hướng dẫn từng bước: [docs/deploy-render.md](docs/deploy-render.md).
+
+### 7.5. Tài liệu API
 
 Khi ứng dụng đang chạy, truy cập:
 

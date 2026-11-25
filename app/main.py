@@ -11,6 +11,7 @@ from app.api.deps import get_order_request_service, get_order_service
 from app.api.load_shedding import LoadShedder
 from app.api.rate_limit import RateLimitExceeded
 from app.api.routers import auth, concerts, orders, concert_management, mock_gateway, payments, waiting_room
+from app.integrations import payment_providers
 from app.order_worker import OrderRequestWorker
 from app.repositories.database import init_db
 from app.services import errors
@@ -48,7 +49,7 @@ app.include_router(waiting_room.router)
 app.include_router(orders.router)
 app.include_router(concert_management.router)
 app.include_router(payments.router)
-if config.PAYMENT_PROVIDER == "mock":
+if "mock" in payment_providers():
     app.include_router(mock_gateway.router)
 
 
@@ -67,6 +68,7 @@ ERROR_STATUS = {
     errors.HoldExpired: 409,
     errors.InvalidWebhookSignature: 401,
     errors.PaymentGatewayError: 502,
+    errors.UnsupportedPaymentProvider: 400,
     errors.RefundWindowClosed: 409,
     errors.WaitingRoomRequired: 403,
 }

@@ -19,6 +19,7 @@ from decimal import Decimal
 
 from app.services.errors import (
     Forbidden, HoldExpired, InvalidState, NotFound, PaymentGatewayError, RefundWindowClosed,
+    UnsupportedPaymentProvider,
 )
 from app.services.order_data import OrderData
 from app.services.order_service import release_hold, release_sold
@@ -47,40 +48,61 @@ class WebhookOutcome:
 
 
 class PaymentService:
-    def __init__(self, uow_factory: Callable[[], UnitOfWork], gateway: PaymentGateway,
+    def __init__(self, uow_factory: Callable[[], UnitOfWork],
+                 gateway: PaymentGateway | Mapping[str, PaymentGateway],
                  make_ticket_code: Callable[[int], str], clock=_utcnow, execute=None, *,
                  refund_cutoff_hours: float = 24):
+        """`gateway`: một cổng, hoặc nhiều cổng {tên: cổng} để khách chọn (cổng đầu là mặc định)."""
         self.uow_factory = uow_factory
-        self.gateway = gateway
+        self.gateways = dict(gateway) if isinstance(gateway, Mapping) else {gateway.name: gateway}
+        if not self.gateways:
+            raise ValueError("at least one payment gateway is required")
+        self.gateway = next(iter(self.gateways.values()))  # cổng mặc định
         self.make_ticket_code = make_ticket_code
         self.clock = clock
         self.execute = execute or (lambda operation: operation())
         # Chỉ hoàn tiền khi còn cách giờ diễn ít nhất chừng này.
         self.refund_cutoff = timedelta(hours=refund_cutoff_hours)
 
+    @property
+    def providers(self) -> list[str]:
+        """Các cổng khách được chọn, cổng mặc định đứng đầu."""
+        return list(self.gateways)
+
+    def gateway_for(self, provider: str | None) -> PaymentGateway:
+        if provider is None:
+            return self.gateway
+        try:
+            return self.gateways[provider]
+        except KeyError:
+            raise UnsupportedPaymentProvider(provider) from None
+
     # --- Bắt đầu thanh toán ------------------------------------------------
 
-    def start_payment(self, user_id: int, order_id: int) -> PaymentData:
-        """Tạo giao dịch ở cổng thanh toán cho một đơn đang giữ chỗ và còn hạn.
+    def start_payment(self, user_id: int, order_id: int, provider: str | None = None) -> PaymentData:
+        """Tạo giao dịch ở cổng `provider` (mặc định: cổng đầu tiên) cho đơn đang giữ chỗ.
 
-        Gọi lại nhiều lần (bấm "Thanh toán" hai lần) trả về cùng một giao dịch đang chờ.
+        Gọi lại nhiều lần với cùng cổng (bấm "Thanh toán" hai lần) trả về cùng giao dịch đang
+        chờ. Đổi sang cổng khác thì tạo giao dịch mới; nếu khách lỡ trả ở cả hai cổng, giao
+        dịch tới sau không chốt được đơn nên tự động được hoàn tiền (xem `_apply`).
         """
-        order, pending = self.execute(lambda: self._payable_order(user_id, order_id))
+        gateway = self.gateway_for(provider)
+        order, pending = self.execute(lambda: self._payable_order(user_id, order_id, gateway.name))
         if pending is not None:
             return pending
 
-        intent = self.gateway.create_payment(
+        intent = gateway.create_payment(
             order.id, order.total_amount, f"Thanh toan don ve #{order.id}"
         )
         payment = PaymentData(order.id, intent.payment_id, intent.payment_url,
-                              order.total_amount, self.gateway.name)
+                              order.total_amount, gateway.name)
         raw_log = json.dumps({"event": "payment_created", "payment_url": intent.payment_url,
                               "gateway": intent.raw}, ensure_ascii=False, default=str)
-        self.execute(lambda: self._record(payment.order_id, payment.payment_id, "payment",
-                                          "pending", payment.amount, raw_log))
+        self.execute(lambda: self._record(payment.order_id, payment.payment_id, gateway.name,
+                                          "payment", "pending", payment.amount, raw_log))
         return payment
 
-    def _payable_order(self, user_id, order_id):
+    def _payable_order(self, user_id, order_id, provider):
         with self.uow_factory() as uow:
             order = uow.orders.get_by_id(order_id)
             if order is None:
@@ -92,17 +114,17 @@ class PaymentService:
             if order.expires_at <= self.clock():
                 raise HoldExpired(order.expires_at.isoformat())
 
-            pending = uow.transactions.latest_pending_payment(order_id)
+            pending = uow.transactions.latest_pending_payment(order_id, provider)
             if pending is not None:
                 pending = PaymentData(order_id, pending.payment_id,
                                       json.loads(pending.raw_log)["payment_url"],
                                       pending.amount, pending.provider)
             return OrderData.from_order(order), pending
 
-    def _record(self, order_id, payment_id, type, status, amount, raw_log) -> bool:
+    def _record(self, order_id, payment_id, provider, type, status, amount, raw_log) -> bool:
         with self.uow_factory() as uow:
             recorded = uow.transactions.record(
-                order_id=order_id, payment_id=payment_id, provider=self.gateway.name,
+                order_id=order_id, payment_id=payment_id, provider=provider,
                 type=type, status=status, amount=amount, raw_log=raw_log,
             )
             uow.commit()
@@ -110,17 +132,34 @@ class PaymentService:
 
     # --- Phản hồi từ cổng thanh toán ---------------------------------------
 
-    def handle_webhook(self, headers: Mapping[str, str], body: bytes) -> WebhookOutcome:
+    def handle_webhook(self, headers: Mapping[str, str], body: bytes,
+                       provider: str | None = None) -> WebhookOutcome:
         """Xử lý phản hồi của bên thứ ba: chốt đơn và xuất vé, hoặc hoàn kho."""
-        event = self.gateway.parse_webhook(headers, body)  # ném lỗi nếu sai chữ ký
-        outcome = self.execute(lambda: self._apply(event))
+        gateway = self.gateway_for(provider)
+        event = gateway.parse_webhook(headers, body)  # ném lỗi nếu sai chữ ký
+        return self._settle(gateway, event)
+
+    def _settle(self, gateway: PaymentGateway, event: PaymentEvent) -> WebhookOutcome:
+        outcome = self.execute(lambda: self._apply(event, gateway.name))
         if outcome.result == "refund_pending":
             self._refund(outcome.order.id, event.payment_id, outcome.refund_amount,
-                         payment_raw=event.raw)
+                         payment_raw=event.raw, provider=gateway.name)
         return outcome
 
-    def _apply(self, event: PaymentEvent) -> WebhookOutcome:
-        provider = self.gateway.name
+    def handle_return(self, query: str, provider: str | None = None) -> WebhookOutcome | None:
+        """Khách quay về từ cổng thật kèm kết quả đã ký (VNPay vnp_ReturnUrl, MoMo redirectUrl).
+
+        Chốt đơn qua đúng đường của webhook. Cần cho sandbox chạy trên localhost, nơi IPN
+        không gọi tới được; khi IPN cũng tới, khoá duy nhất trên transactions biến lần sau
+        thành "duplicate". Cổng không hỗ trợ (giả lập) → None.
+        """
+        gateway = self.gateway_for(provider)
+        parse = getattr(gateway, "parse_return", None)
+        if parse is None:
+            return None
+        return self._settle(gateway, parse(query))  # parse ném InvalidWebhookSignature nếu sai chữ ký
+
+    def _apply(self, event: PaymentEvent, provider: str) -> WebhookOutcome:
         with self.uow_factory() as uow:
             pending = uow.transactions.get_event(provider, event.payment_id, "payment", "pending")
             if pending is None:
@@ -163,18 +202,22 @@ class PaymentService:
         return outcome
 
     def _refund(self, order_id: int, payment_id: str, amount: Decimal,
-                reason: str = "order could not be confirmed", payment_raw: str = "") -> None:
+                reason: str = "order could not be confirmed", payment_raw: str = "", *,
+                provider: str) -> None:
         """Gọi cổng hoàn tiền rồi ghi kết quả. Dòng `refund/pending` không có kết quả
         tương ứng (vd. tiến trình chết giữa chừng) là việc để đối soát xử lý lại.
 
         `payment_raw`: nguyên văn webhook thu tiền, cổng thật cần mã giao dịch trong đó."""
         try:
-            refund = self.gateway.refund(payment_id, amount, reason, payment_raw=payment_raw)
+            gateway = self.gateways.get(provider)
+            if gateway is None:  # cổng đã bị tắt sau khi thu tiền: để đối soát xử lý tay
+                raise PaymentGatewayError(f"payment provider {provider!r} is not configured")
+            refund = gateway.refund(payment_id, amount, reason, payment_raw=payment_raw)
         except PaymentGatewayError as exc:
             refund = RefundResult(False, {"error": str(exc)})
         raw_log = json.dumps({"event": "refund_result", "gateway": refund.raw},
                              ensure_ascii=False, default=str)
-        self.execute(lambda: self._record(order_id, payment_id, "refund",
+        self.execute(lambda: self._record(order_id, payment_id, provider, "refund",
                                           "succeeded" if refund.succeeded else "failed",
                                           amount, raw_log))
 
@@ -187,9 +230,10 @@ class PaymentService:
         `refund/pending`; (2) gọi cổng hoàn tiền ngoài transaction; (3) ghi kết quả.
         Hai request hủy cùng lúc: chỉ request đổi được dòng đơn mới hoàn kho và gọi cổng.
         """
-        order, payment_id, payment_raw = self.execute(lambda: self._begin_refund(user_id, order_id))
+        order, payment_id, payment_raw, provider = self.execute(
+            lambda: self._begin_refund(user_id, order_id))
         self._refund(order.id, payment_id, order.total_amount, "cancelled by customer",
-                     payment_raw=payment_raw)
+                     payment_raw=payment_raw, provider=provider)
         return order
 
     def _begin_refund(self, user_id, order_id):
@@ -212,17 +256,17 @@ class PaymentService:
             payment = uow.transactions.succeeded_payment(order_id)
             if payment is None:  # đơn paid luôn có giao dịch thu tiền; thiếu là dữ liệu hỏng
                 raise InvalidState("order has no settled payment to refund")
-            payment_id, payment_raw = payment.payment_id, payment.raw_log
+            payment_id, payment_raw, provider = payment.payment_id, payment.raw_log, payment.provider
 
             # Trạng thái đã đọc có thể cũ; DB quyết định request nào được hoàn kho.
             if not uow.orders.mark_refunded(order_id, user_id):
                 raise InvalidState("order is no longer paid")
             release_sold(uow, order)
             uow.transactions.record(
-                order_id=order_id, payment_id=payment_id, provider=self.gateway.name,
+                order_id=order_id, payment_id=payment_id, provider=provider,
                 type="refund", status="pending", amount=order.total_amount,
                 raw_log=json.dumps({"event": "refund_requested", "reason": "cancelled by customer"}),
             )
             result = OrderData.from_order(order)
             uow.commit()
-        return result, payment_id, payment_raw
+        return result, payment_id, payment_raw, provider

@@ -33,9 +33,18 @@ def _number(name, default, convert, minimum):
         raise ValueError(f"{name} must be finite and >= {minimum}")
     return value
 
-DATABASE_URL = os.getenv(
+def _sqlalchemy_url(url: str) -> str:
+    """Render/Heroku cấp chuỗi `postgres://` hoặc `postgresql://`; SQLAlchemy cần chỉ rõ driver
+    psycopg 3 (`postgresql+psycopg://`), nếu không sẽ tìm psycopg2 vốn không được cài."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+DATABASE_URL = _sqlalchemy_url(os.getenv(
     "DATABASE_URL", "postgresql+psycopg://concert:concert@localhost:5432/concert"
-)
+))
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-me-please-use-32-bytes-or-more")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 
@@ -99,16 +108,20 @@ RATE_LIMIT_WAITING_ROOM_PER_MINUTE = _number("RATE_LIMIT_WAITING_ROOM_PER_MINUTE
 MAX_IN_FLIGHT_REQUESTS = _number("MAX_IN_FLIGHT_REQUESTS", 200, int, 0)
 OVERLOAD_RETRY_AFTER_SECONDS = _number("OVERLOAD_RETRY_AFTER_SECONDS", 1, int, 1)
 
+# Một hoặc nhiều cổng, cách nhau bằng dấu phẩy (vd. "vnpay,momo"): khách chọn cổng khi thanh
+# toán, cổng đầu tiên là mặc định.
 PAYMENT_PROVIDER = os.getenv("PAYMENT_PROVIDER", "mock")
 # Khóa bí mật dùng chung với cổng thanh toán để ký/kiểm tra webhook (HMAC-SHA256).
 PAYMENT_WEBHOOK_SECRET = os.getenv("PAYMENT_WEBHOOK_SECRET", "dev-payment-secret-change-me")
 # Khóa ký mã QR của vé.
 TICKET_QR_SECRET = os.getenv("TICKET_QR_SECRET", "dev-ticket-qr-secret-change-me")
 # URL công khai của hệ thống, dùng để tạo đường dẫn thanh toán giả lập.
-PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "http://localhost:8000").rstrip("/")
+# Trên Render, RENDER_EXTERNAL_URL (vd. https://hit-the-vibe.onrender.com) được đặt sẵn.
+PUBLIC_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or os.getenv("RENDER_EXTERNAL_URL")
+                   or "http://localhost:8000").rstrip("/")
 # Trả tiền xong, cổng thật (VNPay/MoMo) đưa khách quay về /payments/return, rồi được chuyển
 # tiếp tới địa chỉ này. Trạng thái đơn vẫn do IPN quyết định; trang này chỉ hiển thị.
-PAYMENT_RETURN_URL = os.getenv("PAYMENT_RETURN_URL", f"{PUBLIC_BASE_URL}/#/orders")
+PAYMENT_RETURN_URL = os.getenv("PAYMENT_RETURN_URL") or f"{PUBLIC_BASE_URL}/#/orders"
 # Thời gian chờ tối đa một lời gọi HTTP tới cổng thanh toán thật (giây).
 PAYMENT_GATEWAY_TIMEOUT_SECONDS = _number("PAYMENT_GATEWAY_TIMEOUT_SECONDS", 10, float, 0.1)
 

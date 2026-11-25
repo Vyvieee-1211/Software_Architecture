@@ -1,3 +1,4 @@
+import io
 from dataclasses import asdict
 from typing import Annotated
 
@@ -9,7 +10,7 @@ from app.api.deps import (
     get_current_user, get_order_request_service, get_order_service, get_payment_service, limit_per_user,
 )
 from app.api.schemas import (
-    CreateOrderRequest, OrderRequestResponse, OrderResponse, PaymentResponse, TicketResponse,
+    CreateOrderRequest, OrderRequestResponse, OrderResponse, PayRequest, PaymentResponse, TicketResponse,
 )
 from app.repositories.models import User
 from app.services.order_request_service import OrderRequestData, OrderRequestService
@@ -150,10 +151,11 @@ def cancel_order(
 )
 def pay_order(
     order_id: int,
+    body: PayRequest | None = None,
     user: User = Depends(get_current_user),
     svc: PaymentService = Depends(get_payment_service),
 ):
-    return svc.start_payment(user.id, order_id)
+    return svc.start_payment(user.id, order_id, body.provider if body else None)
 
 
 @router.get("/{order_id}/tickets", response_model=list[TicketResponse])
@@ -180,5 +182,8 @@ def get_ticket_qr(
     ticket = next((t for t in svc.list_tickets(user.id, order_id) if t.id == ticket_id), None)
     if ticket is None or ticket.qr_code is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Ticket has not been issued")
-    svg = segno.make(ticket.qr_code, error="m").svg_inline(scale=6, border=2)
-    return Response(content=svg, media_type="image/svg+xml")
+    # Phải là file SVG độc lập (có xmlns): svg_inline() bỏ xmlns nên <img> không vẽ được.
+    buffer = io.BytesIO()
+    segno.make(ticket.qr_code, error="m").save(buffer, kind="svg", scale=6, border=2, xmldecl=False)
+    return Response(content=buffer.getvalue(), media_type="image/svg+xml",
+                    headers={"Cache-Control": "private, no-store"})

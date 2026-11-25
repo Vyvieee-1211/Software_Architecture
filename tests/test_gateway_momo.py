@@ -186,3 +186,16 @@ def test_momo_ipn_failure_releases_hold(client, gateway, monkeypatch):
     assert r.status_code == 204
     assert client.get(f"/orders/{order['id']}", headers=h).json()["status"] == "failed"
     assert remaining(client) == 3
+
+
+def test_return_query_is_parsed_like_ipn(gateway, api_calls):
+    """redirectUrl mang đúng các trường của IPN trong query string (mọi giá trị là chuỗi)."""
+    from urllib.parse import urlencode
+    query = urlencode(json.loads(ipn_body("o7-abc", 150000)))
+    event = gateway.parse_return(query)
+    assert event.payment_id == "o7-abc" and event.succeeded and event.amount == Decimal("150000")
+    with pytest.raises(InvalidWebhookSignature):
+        gateway.parse_return(urlencode(json.loads(ipn_body("o7-abc", 150000, secret_ok=False))))
+
+    gateway.refund("o7-abc", Decimal("150000"), "x", payment_raw=event.raw)
+    assert api_calls["requests"][-1][1]["transId"] == 2147000001
