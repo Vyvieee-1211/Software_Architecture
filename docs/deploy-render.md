@@ -21,7 +21,7 @@ và push trước khi tạo (hoặc chọn nhánh khác ở bước 2).
 1. Đăng ký <https://render.com> bằng tài khoản GitHub.
 2. **New → Blueprint**, chọn repo `Software_Architecture`. Render đọc `render.yaml` và liệt kê:
    web service `hit-the-vibe` và database `hit-the-vibe-db`.
-3. Render hỏi các biến `VNPAY_*` / `MOMO_*`: **để trống** nếu chưa có key (web chạy bằng cổng
+3. Render hỏi các biến `VNPAY_*`: **để trống** nếu chưa có key (web chạy bằng cổng
    giả lập). Bấm **Apply**.
 4. Chờ build xong (vài phút). Địa chỉ web hiện ở đầu trang của service `hit-the-vibe`.
 
@@ -42,18 +42,14 @@ Tại <https://sandbox.vnpayment.vn/devreg/>, với `<địa-chỉ>` là địa 
 VNPay gửi email có `vnp_TmnCode`, `vnp_HashSecret`, tài khoản trang quản trị merchant và thẻ
 test.
 
-MoMo không cần đăng ký: bộ key test dùng chung có trên <https://developers.momo.vn>. IPN của MoMo
-gửi kèm từng giao dịch (`https://<địa-chỉ>/payments/webhook/momo`), không phải khai.
-
 ## 4. Bật cổng thật
 
 Service `hit-the-vibe` → **Environment**:
 
 | Biến | Giá trị |
 |---|---|
-| `PAYMENT_PROVIDER` | `vnpay`, `momo` hoặc `vnpay,momo` (khách chọn cổng; cổng đầu là mặc định) |
+| `PAYMENT_PROVIDER` | `vnpay` (hoặc `vnpay,mock` để giữ cổng giả lập khi demo; cổng đầu là mặc định) |
 | `VNPAY_TMN_CODE`, `VNPAY_HASH_SECRET` | từ email VNPay |
-| `MOMO_PARTNER_CODE`, `MOMO_ACCESS_KEY`, `MOMO_SECRET_KEY` | từ developers.momo.vn |
 
 **Save Changes**: Render tự deploy lại. Thiếu key của cổng nào đã bật thì service không khởi
 động được, log ghi rõ biến còn thiếu (vd. `VNPAY_TMN_CODE is required`).

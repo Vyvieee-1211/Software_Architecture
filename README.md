@@ -190,9 +190,8 @@ Cổng thanh toán được trừu tượng hóa bằng giao diện `PaymentGate
 |-|-|-|-|-|
 |`mock` (mặc định)|`app/integrations/mock_payment.py`|URL trang giả lập `/mock-gateway/checkout`|`POST /payments/webhook`, HMAC-SHA256|luôn thành công|
 |`vnpay`|`app/integrations/vnpay.py`|URL `vpcpay.html` ký HMAC-SHA512 (không gọi API)|IPN `GET /payments/webhook`, HMAC-SHA512; trả `{"RspCode":"00"}`|API `merchant_webapi/api/transaction`, cần `vnp_TransactionNo`/`vnp_PayDate` từ IPN|
-|`momo`|`app/integrations/momo.py`|`POST /v2/gateway/api/create` ký HMAC-SHA256, nhận `payUrl`|IPN `POST /payments/webhook` (JSON), HMAC-SHA256; trả HTTP 204|`POST /v2/gateway/api/refund`, cần `transId` từ IPN|
 
-Vì hoàn tiền ở cổng thật cần mã giao dịch phía cổng, `refund()` nhận thêm `payment_raw` là nguyên văn IPN đã lưu ở `transactions.raw_log` của dòng `payment/succeeded`. Trả tiền xong, cổng thật đưa khách về `GET /payments/return`, endpoint này chỉ chuyển hướng tới `PAYMENT_RETURN_URL` (mặc định `{PUBLIC_BASE_URL}/#/orders`); trạng thái đơn luôn do IPN quyết định. Để thử với sandbox VNPay/MoMo, `PUBLIC_BASE_URL` phải truy cập được từ Internet (vd. qua ngrok) và với VNPay phải khai IPN URL `{PUBLIC_BASE_URL}/payments/webhook` trong trang quản trị merchant. Thông tin tài khoản sandbox đặt trong `VNPAY_TMN_CODE`/`VNPAY_HASH_SECRET` hoặc `MOMO_PARTNER_CODE`/`MOMO_ACCESS_KEY`/`MOMO_SECRET_KEY` (xem `.env.example`).
+Vì hoàn tiền ở VNPay cần mã giao dịch phía cổng, `refund()` nhận thêm `payment_raw` là nguyên văn IPN đã lưu ở `transactions.raw_log` của dòng `payment/succeeded`. Trả tiền xong, VNPay đưa khách về `GET /payments/return/vnpay`: kết quả kèm theo đã ký nên được kiểm tra và chốt đơn ngay (giống IPN; IPN tới sau là trùng lặp vô hại), rồi chuyển khách tới trang đơn `PAYMENT_RETURN_URL/{id}`. Nhờ vậy sandbox chạy được cả trên localhost; IPN `GET /payments/webhook` (khai trong trang quản trị merchant, cần địa chỉ công khai) chỉ cần khi khách đóng tab trước lúc quay về. `PAYMENT_PROVIDER` nhận nhiều cổng cách nhau bằng dấu phẩy (vd. `vnpay,mock`): khách chọn cổng trên trang đơn. Key sandbox đặt trong `VNPAY_TMN_CODE`/`VNPAY_HASH_SECRET` (file `.env` hoặc biến môi trường, không commit).
 
 \---
 
@@ -377,9 +376,10 @@ Khi ứng dụng đang chạy, truy cập:
 |`POST`|`/orders/{id}/pay`|Bearer Token|Tạo giao dịch ở cổng thanh toán, trả `payment_url`. 409 `HoldExpired` nếu quá hạn.|
 |`GET`|`/orders/{id}/tickets`|Bearer Token|Các vé của đơn (`seat_no`, `qr_code` khi đã thanh toán).|
 |`GET`|`/orders/{id}/tickets/{ticket_id}/qr`|Bearer Token|Ảnh QR (SVG) của một vé đã xuất.|
-|`POST`|`/payments/webhook`|Chữ ký HMAC|Cổng thanh toán (mock, MoMo) báo kết quả; 401 `InvalidWebhookSignature`. Với MoMo trả HTTP 204.|
+|`POST`|`/payments/webhook`, `/payments/webhook/{provider}`|Chữ ký HMAC|Cổng giả lập báo kết quả; 401 `InvalidWebhookSignature`.|
 |`GET`|`/payments/webhook`|Chữ ký HMAC|IPN của VNPay (chỉ khi `PAYMENT_PROVIDER=vnpay`); trả `{"RspCode": "00"\|"02"\|"97"\|"01"}`.|
-|`GET`|`/payments/return`|Không yêu cầu|Cổng thật đưa khách quay lại; chuyển hướng tới `PAYMENT_RETURN_URL`.|
+|`GET`|`/payments/return/{provider}`|Chữ ký của cổng|VNPay đưa khách quay lại: kiểm tra chữ ký, chốt đơn, chuyển tới trang đơn.|
+|`GET`|`/payments/providers`|Không yêu cầu|Các cổng thanh toán đang bật (cổng mặc định đứng đầu).|
 |`GET`/`POST`|`/mock-gateway/checkout`, `/mock-gateway/pay`|Không yêu cầu|Trang và API của cổng thanh toán giả lập (chỉ khi `PAYMENT_PROVIDER=mock`).|
 |`GET`|`/health`|Không yêu cầu|Kiểm tra trạng thái hoạt động cơ bản của API.|
 

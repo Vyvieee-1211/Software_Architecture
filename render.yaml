@@ -48,17 +48,11 @@ services:
       - key: ADMIN_EMAILS
         value: demo@example.com
 
-      # Cổng thanh toán: bắt đầu bằng mock để web chạy ngay; có key thì đổi thành
-      # vnpay | momo | vnpay,momo (cổng đầu là mặc định) trong tab Environment.
+      # Cổng thanh toán: bắt đầu bằng mock để web chạy ngay; có key VNPay thì đổi thành
+      # vnpay (hoặc vnpay,mock để giữ cổng giả lập khi demo) trong tab Environment.
       - key: PAYMENT_PROVIDER
         value: mock
       - key: VNPAY_TMN_CODE
         sync: false
       - key: VNPAY_HASH_SECRET
-        sync: false
-      - key: MOMO_PARTNER_CODE
-        sync: false
-      - key: MOMO_ACCESS_KEY
-        sync: false
-      - key: MOMO_SECRET_KEY
         sync: false

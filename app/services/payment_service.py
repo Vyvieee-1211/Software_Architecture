@@ -147,7 +147,7 @@ class PaymentService:
         return outcome
 
     def handle_return(self, query: str, provider: str | None = None) -> WebhookOutcome | None:
-        """Khách quay về từ cổng thật kèm kết quả đã ký (VNPay vnp_ReturnUrl, MoMo redirectUrl).
+        """Khách quay về từ cổng thật kèm kết quả đã ký (VNPay vnp_ReturnUrl).
 
         Chốt đơn qua đúng đường của webhook. Cần cho sandbox chạy trên localhost, nơi IPN
         không gọi tới được; khi IPN cũng tới, khoá duy nhất trên transactions biến lần sau

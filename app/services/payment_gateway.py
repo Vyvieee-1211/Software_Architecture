@@ -1,6 +1,6 @@
 """Cổng thanh toán nhìn từ phía nghiệp vụ — không phụ thuộc nhà cung cấp cụ thể.
 
-Mỗi nhà cung cấp (giả lập, VNPay, MoMo…) là một adapter trong `app/integrations/`
+Mỗi nhà cung cấp (giả lập, VNPay…) là một adapter trong `app/integrations/`
 hiện thực giao diện này. Tầng nghiệp vụ chỉ biết ba thao tác: tạo giao dịch, đọc
 webhook đã được xác thực, và hoàn tiền.
 """
@@ -52,7 +52,7 @@ class PaymentGateway(Protocol):
         """Hoàn `amount` cho giao dịch `payment_id`.
 
         `payment_raw` là nguyên văn webhook đã báo thu tiền thành công (transactions.raw_log):
-        cổng thật (VNPay, MoMo) cần mã giao dịch phía họ ghi trong đó mới hoàn được.
+        cổng thật (VNPay) cần mã giao dịch phía họ ghi trong đó mới hoàn được.
         Ném PaymentGatewayError nếu cổng từ chối hoặc không phản hồi.
         """
         ...

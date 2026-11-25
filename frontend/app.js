@@ -44,7 +44,6 @@ let paymentProviders = null;
 let chosenProvider = null;
 const PROVIDER_INFO = {
   vnpay: ['VNPay', 'Thẻ ATM nội địa, Visa/Mastercard, QR ngân hàng'],
-  momo: ['Ví MoMo', 'Quét mã QR hoặc mở ứng dụng MoMo'],
   mock: ['Cổng giả lập', 'Dùng khi phát triển, không trừ tiền thật'],
 };
 
@@ -530,7 +529,7 @@ function providerPicker() {
   const current = selectedProvider();
   return `<fieldset class="provider-picker"><legend>Chọn cổng thanh toán</legend>${providers.map((name) => {
     const [label, note] = PROVIDER_INFO[name] || [name, ''];
-    return `<label class="provider-option provider-${escape(name)}"><input type="radio" name="payment-provider" value="${escape(name)}" ${name === current ? 'checked' : ''}><span class="provider-logo" aria-hidden="true">${escape(label.replace('Ví ', '').slice(0, 5))}</span><span class="provider-copy"><strong>${escape(label)}</strong><span>${escape(note)}</span></span></label>`;
+    return `<label class="provider-option provider-${escape(name)}"><input type="radio" name="payment-provider" value="${escape(name)}" ${name === current ? 'checked' : ''}><span class="provider-logo" aria-hidden="true">${escape(label.slice(0, 5))}</span><span class="provider-copy"><strong>${escape(label)}</strong><span>${escape(note)}</span></span></label>`;
   }).join('')}</fieldset>`;
 }
 
@@ -817,7 +816,7 @@ async function bookTicket() {
     return;
   }
 
-  // Bật nhiều cổng: đưa khách tới trang đơn để chọn VNPay / MoMo.
+  // Bật nhiều cổng: đưa khách tới trang đơn để chọn cổng thanh toán.
   if ((await loadPaymentProviders()).length > 1) {
     mutationBusy = false;
     navigate(`/orders/${order.id}`);

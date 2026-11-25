@@ -4,9 +4,8 @@ Mỗi cổng "gọi về" một kiểu khác nhau; router chỉ đưa nó về d
 và trả lời đúng định dạng cổng đó chờ. Việc chốt đơn luôn đi qua một đường duy nhất:
 PaymentService.handle_webhook.
 
-- Mock / MoMo: POST, kết quả trong thân JSON. MoMo chờ HTTP 204, ngược lại sẽ gửi lại.
-  Có thể bật nhiều cổng cùng lúc, nên mỗi cổng có đường riêng `/payments/webhook/{cổng}`
-  (`/payments/webhook` không kèm tên là cổng mặc định).
+- Mock: POST, kết quả trong thân JSON. Có thể bật nhiều cổng cùng lúc, nên mỗi cổng có
+  đường riêng `/payments/webhook/{cổng}` (`/payments/webhook` không kèm tên là cổng mặc định).
 - VNPay: GET /payments/webhook, kết quả trong query string; VNPay chờ JSON
   {"RspCode", "Message"} với mã "00" nghĩa là hệ thống đã ghi nhận.
 """
@@ -17,7 +16,7 @@ from fastapi.responses import RedirectResponse
 from app import config
 from app.api.deps import get_payment_service
 from app.api.schemas import PaymentProvidersResponse, WebhookResponse
-from app.integrations import momo, vnpay
+from app.integrations import vnpay
 from app.services.errors import BusinessError, InvalidWebhookSignature, NotFound
 from app.services.payment_service import PaymentService, WebhookOutcome
 
@@ -39,7 +38,7 @@ def payment_providers(svc: PaymentService = Depends(get_payment_service)):
     "/webhook/{provider}",
     response_model=WebhookResponse,
     summary="Cổng `provider` báo kết quả (POST)",
-    responses={204: {"description": "Khi provider=momo."}, 401: {"description": "Sai chữ ký."}},
+    responses={401: {"description": "Sai chữ ký."}},
 )
 async def provider_webhook(provider: str, request: Request,
                            svc: PaymentService = Depends(get_payment_service)):
@@ -53,7 +52,6 @@ async def provider_webhook(provider: str, request: Request,
     response_model=WebhookResponse,
     summary="Cổng thanh toán báo kết quả (POST): chốt đơn và xuất vé, hoặc hoàn kho",
     responses={
-        204: {"description": "Khi PAYMENT_PROVIDER=momo: MoMo chỉ cần HTTP 204 để biết IPN đã được nhận."},
         401: {"description": "Sai chữ ký (InvalidWebhookSignature)."},
         404: {"description": "Không có giao dịch này."},
     },
@@ -67,8 +65,6 @@ async def _post_webhook(request: Request, svc: PaymentService, provider: str):
     body = await request.body()
     headers = {name.lower(): value for name, value in request.headers.items()}
     outcome = await run_in_threadpool(svc.handle_webhook, headers, body, provider)
-    if isinstance(svc.gateways[provider], momo.MoMoGateway):
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
     return webhook_response(outcome)
 
 

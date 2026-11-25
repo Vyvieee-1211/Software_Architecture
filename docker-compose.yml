@@ -21,15 +21,12 @@ services:
       DATABASE_URL: postgresql+psycopg://concert:concert@db:5432/concert
       JWT_SECRET: change-me-in-production-at-least-32-bytes-long
       # Cổng thanh toán lấy từ .env ở thư mục gốc (docker compose tự đọc file này để thay ${...}).
-      # Sandbox: PAYMENT_PROVIDER=vnpay | momo | vnpay,momo (khách chọn cổng) và điền VNPAY_* / MOMO_* trong .env.
+      # Sandbox: PAYMENT_PROVIDER=vnpay (hoặc vnpay,mock để khách chọn cổng) và điền VNPAY_* trong .env.
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
       PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-change-me-payment-webhook-secret}
       PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-http://localhost:8000/#/orders}
       VNPAY_TMN_CODE: ${VNPAY_TMN_CODE:-}
       VNPAY_HASH_SECRET: ${VNPAY_HASH_SECRET:-}
-      MOMO_PARTNER_CODE: ${MOMO_PARTNER_CODE:-}
-      MOMO_ACCESS_KEY: ${MOMO_ACCESS_KEY:-}
-      MOMO_SECRET_KEY: ${MOMO_SECRET_KEY:-}
       TICKET_QR_SECRET: change-me-ticket-qr-secret
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8000}
     ports:
