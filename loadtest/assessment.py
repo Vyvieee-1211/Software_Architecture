@@ -4,6 +4,7 @@ import json
 import math
 import re
 from collections import Counter, defaultdict
+from datetime import datetime
 from statistics import median
 
 
@@ -17,11 +18,45 @@ def p95(values):
     return sorted(values)[max(0, math.ceil(len(values) * .95) - 1)]
 
 
+def observe_steady(output, start, duration):
+    """Tóm tắt log đo trong cùng cửa sổ steady với báo cáo HTTP."""
+    path = output / "api.log"
+    if start is None or not path.exists():
+        return {}
+    webhook_ms, first_memory, last_memory = [], [], []
+    with path.open(encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            match = re.search(r"(?:domain_event|ops_metrics) (\{.*\})$", line)
+            if not match:
+                continue
+            try:
+                sample = json.loads(match[1])
+                stamp = datetime.fromisoformat(sample["timestamp"]).timestamp()
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not start <= stamp <= start + duration:
+                continue
+            if "webhook_to_qr_ms" in sample:
+                webhook_ms.append(sample["webhook_to_qr_ms"])
+            if "python_traced_bytes" in sample:
+                if stamp <= start + 300:
+                    first_memory.append(sample["python_traced_bytes"])
+                if stamp >= start + duration - 300:
+                    last_memory.append(sample["python_traced_bytes"])
+    evidence = {}
+    if webhook_ms:
+        evidence["webhook_to_qr"] = {"samples": len(webhook_ms), "p95_ms": p95(webhook_ms)}
+    if first_memory and last_memory:
+        evidence["python_traced_bytes_first_last_5m_median"] = [median(first_memory), median(last_memory)]
+    return evidence
+
+
 def assess(output, scenario, metadata, database_url, counters=None):
     checks, evidence = {}, {}
     start_file = output / "steady_start.json"
     start = json.loads(start_file.read_text(encoding="utf-8"))["timestamp"] if start_file.exists() else None
     duration = metadata.get("steady_seconds", 0)
+    evidence.update(observe_steady(output, start, duration))
     expected = metadata.get("users", 0)
     counters = counters or {}
     if scenario in {"S3", "S8", "S10"} or scenario == "S9" and metadata.get("workload") == "funnel":
@@ -84,6 +119,7 @@ def assess(output, scenario, metadata, database_url, counters=None):
         evidence["fault_timestamps"] = marks
         recovery = []
         unavailable = []
+        unavailable_by_code = Counter()
         outside_count = outside_errors = invalid_during_outage = 0
         for path in output.glob("requests_*.csv"):
             for row in rows(path):
@@ -93,16 +129,21 @@ def assess(output, scenario, metadata, database_url, counters=None):
                 if row["phase"] != "steady":
                     continue
                 during = "stop_requested" in marks and marks["stop_requested"] <= stamp <= marks.get("db_ready", float("inf")) + 15
+                database_503 = row["status"] == "503" and (
+                    "error_code" not in row or row["error_code"] == "DatabaseUnavailable"
+                )
                 if during:
-                    if row["error"] and not (row["status"] == "503" and row.get("retry_after")):
+                    if row["error"] and not (database_503 and row.get("retry_after")):
                         invalid_during_outage += 1
                 else:
                     outside_count += 1
                     outside_errors += bool(row["error"])
                 if "stop_requested" in marks and stamp >= marks["stop_requested"] and row["status"] == "503":
                     unavailable.append(row)
+                    unavailable_by_code[row.get("error_code") or "unknown"] += 1
                 if "db_ready" in marks and stamp >= marks["db_ready"] and row["status"] in {"200", "201", "202"} and not row["error"]:
                     recovery.append(stamp)
+        evidence["503_by_error_code_after_fault_start"] = dict(unavailable_by_code)
         checks["fault_was_injected"] = all(k in marks for k in ("stop_completed", "start_completed", "db_ready"))
         checks["503_has_retry_after"] = all(r.get("retry_after") for r in unavailable) if unavailable else None
         checks["no_timeout_or_unexpected_status_during_outage"] = invalid_during_outage == 0

@@ -12,11 +12,13 @@ Nguyên tắc:
   bại thì dòng `refund/pending` không có kết quả là việc để đối soát xử lý lại.
 """
 import json
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from app.services.domain_events import DomainEvent, DomainEvents
 from app.services.errors import (
     Forbidden, HoldExpired, InvalidState, NotFound, PaymentGatewayError, RefundWindowClosed,
 )
@@ -49,12 +51,13 @@ class WebhookOutcome:
 class PaymentService:
     def __init__(self, uow_factory: Callable[[], UnitOfWork], gateway: PaymentGateway,
                  make_ticket_code: Callable[[int], str], clock=_utcnow, execute=None, *,
-                 refund_cutoff_hours: float = 24):
+                 refund_cutoff_hours: float = 24, events: DomainEvents | None = None):
         self.uow_factory = uow_factory
         self.gateway = gateway
         self.make_ticket_code = make_ticket_code
         self.clock = clock
         self.execute = execute or (lambda operation: operation())
+        self.events = events if events is not None else DomainEvents()
         # Chỉ hoàn tiền khi còn cách giờ diễn ít nhất chừng này.
         self.refund_cutoff = timedelta(hours=refund_cutoff_hours)
 
@@ -110,10 +113,20 @@ class PaymentService:
 
     # --- Phản hồi từ cổng thanh toán ---------------------------------------
 
-    def handle_webhook(self, headers: Mapping[str, str], body: bytes) -> WebhookOutcome:
+    def handle_webhook(self, headers: Mapping[str, str], body: bytes,
+                       received_at: float | None = None) -> WebhookOutcome:
         """Xử lý phản hồi của bên thứ ba: chốt đơn và xuất vé, hoặc hoàn kho."""
+        if received_at is None:
+            received_at = time.monotonic()
         event = self.gateway.parse_webhook(headers, body)  # ném lỗi nếu sai chữ ký
         outcome = self.execute(lambda: self._apply(event))
+        if outcome.result == "paid":
+            elapsed_ms = (time.monotonic() - received_at) * 1000
+            timestamp = self.clock()
+            order = outcome.order
+            self.events.publish(DomainEvent("OrderPaid", order.id, timestamp, order.quantity))
+            self.events.publish(DomainEvent("TicketsIssued", order.id, timestamp, order.quantity,
+                                            webhook_to_qr_ms=elapsed_ms))
         if outcome.result == "refund_pending":
             self._refund(outcome.order.id, event.payment_id, outcome.refund_amount,
                          payment_raw=event.raw)

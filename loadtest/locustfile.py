@@ -204,17 +204,23 @@ class BaseUser(HttpUser):
             r.failure(f"unexpected {r.status_code}: {r.text[:120]}")
             return None
 
-    def wait_request(self, location, timeout=None, started=None):
+    def wait_request(self, accepted, timeout=None, started=None):
         """Hỏi trạng thái theo Retry-After đến khi yêu cầu xong. Trả về JSON cuối, hoặc None."""
         started = started if started is not None else time.monotonic()
         timeout = timeout or float(os.getenv("QUEUE_TIMEOUT_SECONDS", "60"))
-        delay = 0.5
-        while time.monotonic() - started < timeout:
+        location = accepted.headers["Location"]
+        delay = runtime.retry_delay(accepted) or 0.5
+        while time.monotonic() - started + delay < timeout:
             gevent.sleep(delay)
             with self.client.get(location, headers=self.headers, name="/orders/requests/{id} [GET]",
                                  catch_response=True) as r:
                 if r.status_code != 200:
                     r.failure(f"unexpected {r.status_code}: {r.text[:120]}")
+                    if r.status_code == 503:
+                        retry = runtime.retry_delay(r)
+                        if retry is not None:
+                            delay = retry
+                            continue
                     return None
                 body = r.json()
                 if body["status"] != "pending":
@@ -227,7 +233,7 @@ class BaseUser(HttpUser):
                                         response_time=(time.monotonic() - started) * 1000,
                                         response_length=0, exception=None if expected else RuntimeError(str(error)), context={})
                     return body
-                delay = float(r.headers.get("Retry-After", delay))
+                delay = runtime.retry_delay(r) or delay
         count("request_timeout")
         events.request.fire(request_type="QUEUE", name="order request end-to-end",
                             response_time=(time.monotonic() - started) * 1000,
@@ -242,7 +248,7 @@ class BaseUser(HttpUser):
                         key or uuid.uuid4().hex, name)
         if r is None or r.status_code != 202:
             return r
-        final = self.wait_request(r.headers["Location"], started=started)
+        final = self.wait_request(r, started=started)
         if final is None:
             return None
         if final["status"] == "succeeded":
@@ -452,7 +458,7 @@ class RetryStormUser(BaseUser):
         verify(ok, "retry x3 same request, one fresh")
         if not ok:
             log.error("retry x3: %s", [(r.status_code, r.text[:80]) for r in results])
-        final = self.wait_request(accepted[0].headers["Location"])
+        final = self.wait_request(accepted[0])
         if final is not None and final["status"] == "succeeded":
             self.cancel(final["order_id"])  # trả kho để lượt sau còn vé
 

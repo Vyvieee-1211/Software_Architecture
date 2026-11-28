@@ -2,8 +2,10 @@
 import csv
 import json
 import os
+import random
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import gevent
 from locust.runners import MasterRunner, WorkerRunner
@@ -13,10 +15,37 @@ STARTED = None
 REPORTS = {}
 
 
+def retry_delay(response):
+    """Đọc số giây API gửi trong Retry-After và thêm jitter."""
+    seconds = response.headers.get("Retry-After", "").strip()
+    return int(seconds) + random.uniform(0, 0.5) if seconds.isascii() and seconds.isdecimal() else None
+
+
 def timed_request(request):
+    not_before = 0.0
+
     def send(method, url, **kwargs):
+        nonlocal not_before
         kwargs.setdefault("timeout", float(os.getenv("HTTP_TIMEOUT_SECONDS", "20")))
-        return request(method, url, **kwargs)
+        path = urlsplit(url).path
+        replayable = ((method == "GET" and path != "/payments/webhook")
+                      or (method == "POST" and path == "/orders"
+                          and bool((kwargs.get("headers") or {}).get("Idempotency-Key"))))
+        for attempt in range(2):
+            wait = not_before - time.monotonic()
+            if wait > 0:
+                gevent.sleep(wait)
+            response = request(method, url, **kwargs)
+            delay = retry_delay(response) if response.status_code == 503 else None
+            if delay is None:
+                return response
+            not_before = time.monotonic() + delay
+            if not replayable or attempt == 1:
+                return response
+            if kwargs.get("catch_response"):
+                # Ghi nhận lượt 503 vào số liệu trước khi thử lại.
+                with response:
+                    response.failure("temporary database outage")
     return send
 
 
@@ -65,7 +94,7 @@ def install(events, counters, barrier):
         concurrency_file = (output / f"concurrency_{node}.csv").open("w", encoding="utf-8", newline="")
         handles.extend([request_file, concurrency_file])
         environment.loadtest_writer = csv.writer(request_file)
-        environment.loadtest_writer.writerow(["timestamp", "phase", "method", "name", "ms", "status", "error", "retry_after"])
+        environment.loadtest_writer.writerow(["timestamp", "phase", "method", "name", "ms", "status", "error", "retry_after", "error_code"])
         concurrency = csv.writer(concurrency_file)
         concurrency.writerow(["timestamp", "phase", "ready", "users"])
         if isinstance(environment.runner, WorkerRunner):
@@ -109,9 +138,17 @@ def install(events, counters, barrier):
                 phase = "drain"
             else:
                 phase = "steady"
+            error_code = ""
+            if response is not None and response.status_code == 503:
+                try:
+                    body = response.json()
+                    if isinstance(body, dict):
+                        error_code = body.get("error", "")
+                except ValueError:
+                    pass
             writer.writerow([stamp, phase, request_type,
                              name, response_time, getattr(response, "status_code", ""), str(exception or ""),
-                             response.headers.get("Retry-After", "") if response is not None else ""])
+                             response.headers.get("Retry-After", "") if response is not None else "", error_code])
 
     @events.user_error.add_listener
     def user_error(user_instance, exception, tb, **kwargs):

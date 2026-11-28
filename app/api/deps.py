@@ -8,21 +8,26 @@ from collections.abc import Generator
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import event
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import QueuePool
 
 from app import config
 from app.config import ADMIN_EMAILS, JWT_EXPIRE_MINUTES, JWT_SECRET
 from app.api.rate_limit import RateLimiter
 from app.integrations import build_payment_gateway
+from app.observability import log_domain_event
 from app.order_worker import wakeup as order_queue_wakeup
-from app.repositories.database import SessionLocal
+from app.repositories.database import SessionLocal, check_database
 from app.repositories.models import User
 from app.repositories.unit_of_work import SqlAlchemyUnitOfWork
 from app.repositories.resilience import database_policy
 from app.repositories.user_repo import UserRepository
 from app.services.auth_service import AuthService
 from app.services.concert_service import ConcertService
+from app.services.domain_events import DomainEvents
 from app.services.errors import InvalidToken
+from app.services.infrastructure_errors import DatabaseUnavailable
 from app.services.order_request_service import OrderRequestService
 from app.services.order_service import OrderService
 from app.services.payment_gateway import PaymentGateway
@@ -30,6 +35,32 @@ from app.services.payment_service import PaymentService
 from app.services.read_cache import ReadThroughCache
 from app.services.ticket_codes import TicketCodes
 from app.services.waiting_room_service import WaitingRoomService
+
+domain_events = DomainEvents(log_domain_event)
+
+
+def check_readiness() -> None:
+    try:
+        with database_policy.protect():
+            check_database(SessionLocal)
+    except DBAPIError as exc:
+        raise DatabaseUnavailable() from exc
+
+
+def get_database_metrics() -> dict:
+    pool = SessionLocal.kw["bind"].pool
+    metrics = {
+        "db_pool_checked_out": pool.checkedout() if isinstance(pool, QueuePool) else None,
+        "order_queue_pending": None,
+    }
+    # Việc lấy mẫu không chiếm lượt thử của circuit breaker và không tính là lỗi nghiệp vụ.
+    if database_policy.breaker.is_closed():
+        try:
+            with _uow() as uow:
+                metrics["order_queue_pending"] = uow.order_requests.count_pending()
+        except (DatabaseUnavailable, SQLAlchemyError):
+            pass
+    return metrics
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -77,6 +108,7 @@ def get_order_service() -> OrderService:
         hold_minutes=config.HOLD_MINUTES,
         max_per_order=config.MAX_TICKETS_PER_ORDER,
         max_held_per_user=config.MAX_HELD_TICKETS_PER_USER,
+        events=domain_events,
     )
 
 
@@ -111,7 +143,7 @@ def get_payment_gateway() -> PaymentGateway:
 
 def get_payment_service(gateway: PaymentGateway = Depends(get_payment_gateway)) -> PaymentService:
     return PaymentService(_uow, gateway, ticket_codes.issue, execute=database_policy.run,
-                          refund_cutoff_hours=config.REFUND_CUTOFF_HOURS)
+                          refund_cutoff_hours=config.REFUND_CUTOFF_HOURS, events=domain_events)
 
 
 _bearer = HTTPBearer(auto_error=False)

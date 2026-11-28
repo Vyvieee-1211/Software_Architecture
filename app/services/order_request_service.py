@@ -167,12 +167,15 @@ class OrderRequestService:
                 if request is None:
                     return False
                 claimed.append(request.id)
-                order, _ = self.orders.place_in(uow, request.user_id, request.ticket_type_id,
-                                                request.quantity, order_key(request.id))
+                order, created = self.orders.place_in(uow, request.user_id, request.ticket_type_id,
+                                                       request.quantity, order_key(request.id))
                 # Đánh dấu xong cùng transaction với tạo đơn: commit cả hai hoặc không gì cả.
                 # False chỉ xảy ra khi worker khác đã xong yêu cầu này trước (SQLite).
-                if uow.order_requests.complete(request.id, order.id, self.clock()):
+                completed = uow.order_requests.complete(request.id, order.id, self.clock())
+                if completed:
                     uow.commit()
+            if completed and created:
+                self.orders.publish_held(order)
             return True
 
         try:

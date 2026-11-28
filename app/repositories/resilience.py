@@ -9,6 +9,7 @@ import sqlite3
 from threading import Lock
 import time
 
+from psycopg import OperationalError as PsycopgOperationalError
 from sqlalchemy.exc import DBAPIError, TimeoutError
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -47,6 +48,8 @@ def classify_failure(exc):
                     sqlite3.SQLITE_FULL, sqlite3.SQLITE_READONLY):
             return Failure("sqlite_storage")
     sqlstate = getattr(exc.orig, "sqlstate", None)  # PostgreSQL (psycopg)
+    if sqlstate is None and isinstance(exc.orig, PsycopgOperationalError):
+        return Failure("pg_connection")
     if sqlstate in _PG_RETRYABLE:
         return Failure("pg_contention", retryable=True)
     if sqlstate is not None and (sqlstate in _PG_UNAVAILABLE or sqlstate[:2] in ("08", "53")):
@@ -63,48 +66,67 @@ _PG_UNAVAILABLE = {"57014", "57P01", "57P02", "57P03"}
 
 
 class CircuitBreaker:
-    """Failures in a sliding window; one probe after cooldown, per process.
+    """Mở mạch theo cửa sổ lỗi và tăng dần số phép thử khi DB phục hồi."""
 
-    Successes during CLOSED do not erase failures: otherwise a successful auth
-    read could mask every failed order write. Generation tokens ignore stale
-    completions from requests admitted before a transition.
-    """
+    _PROBE_LIMITS = (1, 2, 4)
 
-    def __init__(self, threshold=5, window=30, recovery=10, clock=time.monotonic):
-        if threshold < 1 or window <= 0 or recovery <= 0:
-            raise ValueError("Invalid circuit breaker settings")
+    def __init__(self, threshold=5, window=30, recovery=10, clock=time.monotonic, *,
+                 ramp_seconds=0.25):
+        if threshold < 1 or window <= 0 or recovery <= 0 or ramp_seconds < 0:
+            raise ValueError("Cấu hình circuit breaker không hợp lệ")
         self.threshold, self.window, self.recovery = threshold, window, recovery
+        self.ramp_seconds = ramp_seconds
         self.clock = clock
         self._lock = Lock()
         self._failures = deque()
         self._opened_at = None
-        self._probe = False
+        self._stage = 0
+        self._in_flight = 0
+        self._passed = 0
+        self._next_wave_at = 0
         self._generation = 0
+
+    def is_closed(self) -> bool:
+        with self._lock:
+            return self._opened_at is None
 
     def acquire(self):
         with self._lock:
-            if self._opened_at is not None:
-                remaining = self.recovery - (self.clock() - self._opened_at)
-                if remaining > 0 or self._probe:
-                    raise CircuitOpen(max(1, math.ceil(remaining)))
-                self._probe = True
-                logger.info("db_circuit state=half_open")
-                return self._generation, True
-            return self._generation, False
+            if self._opened_at is None:
+                return self._generation, False
+            now = self.clock()
+            remaining = max(self._opened_at + self.recovery, self._next_wave_at) - now
+            limit = self._PROBE_LIMITS[self._stage]
+            if remaining > 0 or self._in_flight + self._passed >= limit:
+                raise CircuitOpen(max(1, math.ceil(remaining)))
+            if self._stage == 0:
+                logger.info("db_circuit state=half_open probe_limit=1")
+            self._in_flight += 1
+            return self._generation, True
 
     def success(self, token):
         with self._lock:
             if token == (self._generation, True):
-                self._opened_at = None
-                self._probe = False
-                self._failures.clear()
-                self._generation += 1
-                logger.info("db_circuit state=closed")
+                self._in_flight -= 1
+                self._passed += 1
+                if self._passed < self._PROBE_LIMITS[self._stage]:
+                    return
+                self._stage += 1
+                self._passed = 0
+                if self._stage == len(self._PROBE_LIMITS):
+                    self._opened_at = None
+                    self._failures.clear()
+                    self._generation += 1
+                    logger.info("db_circuit state=closed")
+                else:
+                    self._next_wave_at = self.clock() + self.ramp_seconds
+                    logger.info("db_circuit state=half_open next_probe_limit=%s",
+                                self._PROBE_LIMITS[self._stage])
 
     def neutral(self, token):
         with self._lock:
             if token == (self._generation, True):
-                self._probe = False
+                self._in_flight -= 1
 
     def failure(self, token):
         with self._lock:
@@ -116,9 +138,14 @@ class CircuitBreaker:
             self._failures.append(now)
             if token[1] or len(self._failures) >= self.threshold:
                 self._opened_at = now
-                self._probe = False
+                self._stage = 0
+                self._in_flight = 0
+                self._passed = 0
+                self._next_wave_at = now + self.recovery
                 self._generation += 1
                 logger.warning("db_circuit state=open")
+                return math.ceil(self.recovery)
+            return None
 
 
 class DatabasePolicy:
@@ -141,10 +168,10 @@ class DatabasePolicy:
         except BaseException as exc:
             failure = classify_failure(exc)
             if failure:
-                self.breaker.failure(token)
+                retry_after = self.breaker.failure(token)
                 logger.warning("db_unavailable kind=%s elapsed_ms=%.1f",
                                failure.kind, (self.clock() - started) * 1000)
-                raise DatabaseUnavailable() from exc
+                raise DatabaseUnavailable(retry_after or getattr(exc, "retry_after", 1)) from exc
             if isinstance(exc, BusinessError):
                 self.breaker.success(token)
             else:
@@ -172,7 +199,8 @@ class DatabasePolicy:
 
 database_policy = DatabasePolicy(
     CircuitBreaker(config.DB_BREAKER_FAILURE_THRESHOLD,
-                   config.DB_BREAKER_WINDOW_SECONDS, config.DB_BREAKER_RECOVERY_SECONDS),
+                   config.DB_BREAKER_WINDOW_SECONDS, config.DB_BREAKER_RECOVERY_SECONDS,
+                   ramp_seconds=config.DB_BREAKER_RAMP_SECONDS),
     max_attempts=config.DB_MAX_ATTEMPTS,
     base_delay=config.DB_RETRY_BASE_SECONDS,
     max_delay=config.DB_RETRY_MAX_SECONDS,

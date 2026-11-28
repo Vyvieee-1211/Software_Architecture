@@ -12,6 +12,7 @@ Idempotency-Key. Lần đầu tạo đơn bình thường; các lần sau với 
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
+from app.services.domain_events import DomainEvent, DomainEvents
 from app.services.errors import (
     Forbidden,
     HoldLimitExceeded,
@@ -60,7 +61,8 @@ def check_sale_window(concert, now: datetime) -> None:
 
 class OrderService:
     def __init__(self, uow_factory: Callable[[], UnitOfWork], clock=_utcnow, execute=None, *,
-                 hold_minutes: float = 12, max_per_order: int = 10, max_held_per_user: int = 10):
+                 hold_minutes: float = 12, max_per_order: int = 10, max_held_per_user: int = 10,
+                 events: DomainEvents | None = None):
         self.uow_factory = uow_factory
         self.clock = clock
         # Infrastructure may inject retries without coupling services to SQLAlchemy.
@@ -68,6 +70,7 @@ class OrderService:
         self.hold_duration = timedelta(minutes=hold_minutes)
         self.max_per_order = max_per_order
         self.max_held_per_user = max_held_per_user
+        self.events = events if events is not None else DomainEvents()
 
     # --- Giữ chỗ -----------------------------------------------------------
 
@@ -94,7 +97,12 @@ class OrderService:
             order, created = self.place_in(uow, user_id, ticket_type_id, quantity, idempotency_key)
             if created:  # trả lại đơn cũ thì không ghi gì, không cần commit
                 uow.commit()
+        if created:
+            self.publish_held(order)
         return order, created
+
+    def publish_held(self, order: OrderData) -> None:
+        self.events.publish(DomainEvent("OrderHeld", order.id, self.clock(), order.quantity))
 
     def place_in(self, uow: UnitOfWork, user_id: int, ticket_type_id: int, quantity: int,
                  idempotency_key: str | None = None):
@@ -208,8 +216,11 @@ class OrderService:
             # các dòng ticket_types theo một thứ tự nên không deadlock lẫn nhau.
             for order in sorted(expired, key=lambda o: (o.ticket_type_id, o.id)):
                 release_hold(uow, order)
+            expired_orders = [(order.id, order.quantity) for order in expired]
             uow.commit()
-            return len(expired)
+        for order_id, quantity in expired_orders:
+            self._publish_expired(order_id, quantity)
+        return len(expired_orders)
 
     def _expire(self, order_id) -> bool:
         """Hết hạn MỘT đơn (dùng khi đọc thấy đơn đã quá hạn). An toàn khi chạy đua với
@@ -217,9 +228,15 @@ class OrderService:
         with self.uow_factory() as uow:
             if not uow.orders.mark_expired(order_id, self.clock()):
                 return False  # vừa được thanh toán / hủy / tiến trình khác xử lý
-            release_hold(uow, uow.orders.get_by_id(order_id))
+            order = uow.orders.get_by_id(order_id)
+            release_hold(uow, order)
+            quantity = order.quantity
             uow.commit()
+        self._publish_expired(order_id, quantity)
         return True
+
+    def _publish_expired(self, order_id: int, quantity: int) -> None:
+        self.events.publish(DomainEvent("HoldExpired", order_id, self.clock(), quantity))
 
     # --- Tra cứu -----------------------------------------------------------
 

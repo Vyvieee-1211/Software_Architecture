@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.engine import make_url
 
@@ -20,6 +20,7 @@ def build_engine(url):
         settings = {"lock_timeout": config.DB_PG_LOCK_TIMEOUT_MS,
                     "statement_timeout": config.DB_PG_STATEMENT_TIMEOUT_MS}
         options["connect_args"] = {
+            "connect_timeout": config.DB_PG_CONNECT_TIMEOUT_SECONDS,
             "options": " ".join(f"-c {name}={value}" for name, value in settings.items() if value)
         }
     # SQLite memory databases use SingletonThreadPool, which has no pool_timeout.
@@ -34,6 +35,12 @@ def build_engine(url):
 
 engine = build_engine(config.DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def check_database(session_factory) -> None:
+    """Kiểm tra có thể lấy kết nối và chạy truy vấn trong một phiên ngắn."""
+    with session_factory() as session:
+        session.execute(text("SELECT 1"))
 
 
 def init_db(bind=None) -> None:

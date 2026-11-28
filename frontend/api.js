@@ -1,6 +1,18 @@
 const SESSION_KEY = 'concert.session';
 const PROFILE_KEY = 'concert.profile-names';
 let session = null;
+let retryNotBefore = 0;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function retryAfterMs(response) {
+  const header = response.headers.get('Retry-After')?.trim();
+  if (!header) return undefined;
+  const delay = /^\d+$/.test(header)
+    ? Number(header) * 1000
+    : Math.max(0, Date.parse(header) - Date.now());
+  return Number.isFinite(delay) ? delay + Math.random() * 500 : undefined;
+}
 
 export function getSavedName(email) {
   try {
@@ -39,11 +51,12 @@ export function setSession(value) {
 }
 
 export class ApiError extends Error {
-  constructor(message, status = 0, code = '') {
+  constructor(message, status = 0, code = '', retryDelayMs) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.retryAfterMs = retryDelayMs;
   }
 }
 
@@ -65,6 +78,7 @@ const messages = {
   WaitingRoomRequired: 'Đang trong đợt mở bán: bạn cần xếp hàng chờ tới lượt rồi mới đặt vé được.',
   RateLimited: 'Bạn thao tác quá nhanh. Vui lòng chờ vài giây rồi thử lại.',
   ServerBusy: 'Hệ thống đang quá tải. Vui lòng thử lại sau ít giây.',
+  DatabaseUnavailable: 'Hệ thống đang tạm quá tải hoặc mất kết nối dữ liệu. Vui lòng thử lại sau.',
 };
 
 // Một khoá cho MỘT lần đặt vé; gửi lại đúng khoá này khi retry để server không tạo đơn trùng.
@@ -75,8 +89,33 @@ export function newIdempotencyKey() {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function request(path, { method = 'GET', body, auth = false, headers = {} } = {}) {
+async function request(path, options = {}) {
   const token = session?.token;
+  const { method = 'GET', headers = {} } = options;
+  const replayable = (method === 'GET' && path !== '/payments/webhook')
+    || (method === 'POST' && path === '/orders' && Boolean(headers['Idempotency-Key']));
+  for (let attempt = 0; ; attempt++) {
+    let delay;
+    while ((delay = retryNotBefore - Date.now()) > 0) {
+      if (delay > 15000) {
+        throw new ApiError(messages.DatabaseUnavailable, 503, 'DatabaseUnavailable', delay);
+      }
+      await sleep(delay + Math.random() * 250);
+    }
+    if (options.auth && session?.token !== token) {
+      throw new ApiError(messages.InvalidToken, 401, 'InvalidToken');
+    }
+    try {
+      return await requestOnce(path, options, token);
+    } catch (error) {
+      if (error.status !== 503 || error.retryAfterMs === undefined) throw error;
+      retryNotBefore = Math.max(retryNotBefore, Date.now() + error.retryAfterMs);
+      if (!replayable || options.retry === false || attempt > 0 || error.retryAfterMs > 15000) throw error;
+    }
+  }
+}
+
+async function requestOnce(path, { method = 'GET', body, auth = false, headers = {}, queueStatus }, token) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
@@ -118,9 +157,11 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
       if (!message && response.status === 422) message = 'Thông tin chưa hợp lệ. Vui lòng kiểm tra các trường và số lượng vé (1–10).';
       if (!message && response.status === 401) message = auth ? 'Vui lòng đăng nhập lại để tiếp tục.' : messages.InvalidCredentials;
       if (!message && response.status === 404) message = messages.NotFound;
+      if (!message && response.status === 503) message = messages.DatabaseUnavailable;
       if (!message) message = 'Không thể thực hiện yêu cầu lúc này. Vui lòng thử lại sau.';
-      throw new ApiError(message, response.status, data?.error || '');
+      throw new ApiError(message, response.status, data?.error || '', retryAfterMs(response));
     }
+    if (queueStatus && data.status === 'pending') data.retryAfterMs = retryAfterMs(response);
     return data;
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -133,8 +174,6 @@ async function request(path, { method = 'GET', body, auth = false, headers = {} 
   }
 }
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 // Asynchronous Request-Reply: hỏi trạng thái yêu cầu đến khi có kết quả, giãn dần khoảng chờ.
 // Thành công → trả về đơn; thất bại → ném ApiError mang mã lỗi nghiệp vụ (vd. SoldOut).
 // Hết thời gian chờ → ném ApiError mã 'OrderPending': yêu cầu vẫn trong hàng đợi, KHÔNG phải lỗi.
@@ -143,15 +182,18 @@ async function waitForOrder(orderRequest, { timeoutMs = 60000 } = {}) {
   let current = orderRequest;
   let delay = 500;
   while (current.status === 'pending') {
-    if (Date.now() >= deadline) {
+    const wait = Math.max(current.retryAfterMs ?? delay, retryNotBefore - Date.now());
+    if (Date.now() + wait >= deadline) {
       throw new ApiError('Yêu cầu đặt vé vẫn đang được xử lý. Vui lòng xem lại trong "Đơn vé của tôi".', 202, 'OrderPending');
     }
-    await sleep(delay);
+    await sleep(wait);
     delay = Math.min(delay * 1.5, 3000);
     try {
       current = await api.orderRequest(current.id);
     } catch (error) {
-      if (error.code !== 'NetworkError') throw error; // mất mạng khi hỏi trạng thái: hỏi lại
+      if (error.code !== 'NetworkError' && !(error.status === 503 && error.retryAfterMs !== undefined)) {
+        throw error;
+      }
     }
   }
   if (current.status === 'succeeded') return current.order;
@@ -190,7 +232,7 @@ export const api = {
   orders: () => request('/orders/me', { auth: true }),
   // Gửi yêu cầu giữ chỗ: server xếp hàng và trả 202 kèm trạng thái `pending`.
   createOrder: (body, idempotencyKey, waitingRoomPass) => request('/orders', {
-    method: 'POST', body, auth: true, headers: {
+    method: 'POST', body, auth: true, queueStatus: true, headers: {
       'Idempotency-Key': idempotencyKey,
       // Thẻ vào cửa của waiting room; chỉ bắt buộc trong đợt mở bán.
       ...(waitingRoomPass ? { 'X-Waiting-Room-Pass': waitingRoomPass } : {}),
@@ -198,7 +240,7 @@ export const api = {
   }),
   // Virtual Waiting Room: vào hàng (gọi lại vẫn giữ chỗ cũ) và nhận vị trí / thẻ vào cửa.
   joinWaitingRoom: (concertId) => request(`/concerts/${concertId}/waiting-room`, { method: 'POST', auth: true }),
-  orderRequest: (id) => request(`/orders/requests/${id}`, { auth: true }),
+  orderRequest: (id) => request(`/orders/requests/${id}`, { auth: true, queueStatus: true, retry: false }),
   waitForOrder,
   order: (id) => request(`/orders/${id}`, { auth: true }),
   // Tạo giao dịch ở cổng thanh toán; gọi lại khi đang chờ thì server trả lại đúng giao dịch cũ.

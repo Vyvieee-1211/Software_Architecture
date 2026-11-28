@@ -759,7 +759,7 @@ async function bookTicket() {
     mutationBusy = false;
     // Lỗi mạng hoặc yêu cầu còn đang chờ xử lý: GIỮ pendingBooking để lần bấm lại dùng cùng
     // khoá (server trả lại đúng yêu cầu cũ). Lỗi khác là kết quả chắc chắn nên lần sau dùng khoá mới.
-    const unresolved = error.code === 'NetworkError' || error.code === 'OrderPending';
+    const unresolved = error.code === 'NetworkError' || error.code === 'OrderPending' || error.status === 503;
     if (!unresolved && pendingBooking?.key === key) pendingBooking = null;
     if (error.code === 'OrderPending') {
       navigate('/my-orders');

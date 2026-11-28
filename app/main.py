@@ -7,10 +7,11 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config
-from app.api.deps import get_order_request_service, get_order_service
+from app.api.deps import check_readiness, get_database_metrics, get_order_request_service, get_order_service
 from app.api.load_shedding import LoadShedder
 from app.api.rate_limit import RateLimitExceeded
 from app.api.routers import auth, concerts, orders, concert_management, mock_gateway, payments, waiting_room
+from app.observability import observe_runtime
 from app.order_worker import OrderRequestWorker
 from app.repositories.database import init_db
 from app.services import errors
@@ -20,19 +21,22 @@ from app.sweeper import HoldSweeper
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    background = []
-    if config.HOLD_SWEEP_INTERVAL_SECONDS > 0:
-        background.append(HoldSweeper(lambda: get_order_service().expire_holds(),
-                                      config.HOLD_SWEEP_INTERVAL_SECONDS))
-    if config.ORDER_WORKERS > 0:
-        background.append(OrderRequestWorker(lambda: get_order_request_service().process_next(),
-                                             config.ORDER_WORKERS, config.ORDER_WORKER_POLL_SECONDS))
-    for task in background:
-        task.start()
-    yield
-    for task in background:
-        task.stop()
+    async with observe_runtime(get_database_metrics):
+        init_db()
+        background = []
+        if config.HOLD_SWEEP_INTERVAL_SECONDS > 0:
+            background.append(HoldSweeper(lambda: get_order_service().expire_holds(),
+                                          config.HOLD_SWEEP_INTERVAL_SECONDS))
+        if config.ORDER_WORKERS > 0:
+            background.append(OrderRequestWorker(lambda: get_order_request_service().process_next(),
+                                                 config.ORDER_WORKERS, config.ORDER_WORKER_POLL_SECONDS))
+        for task in background:
+            task.start()
+        try:
+            yield
+        finally:
+            for task in background:
+                task.stop()
 
 
 app = FastAPI(
@@ -41,6 +45,7 @@ app = FastAPI(
     description="Backend đặt vé concert: giữ chỗ có hạn, thanh toán qua cổng bên thứ ba, xuất vé QR.",
     lifespan=lifespan,
 )
+app.add_middleware(payments.WebhookTimingMiddleware)
 
 app.include_router(auth.router)
 app.include_router(concerts.router)
@@ -95,6 +100,12 @@ def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     )
 
 
+@app.get("/ready", tags=["ops"])
+def ready():
+    check_readiness()
+    return {"status": "ready"}
+
+
 @app.exception_handler(DatabaseUnavailable)
 def database_error_handler(request: Request, exc: DatabaseUnavailable):
     return JSONResponse(
@@ -106,7 +117,8 @@ def database_error_handler(request: Request, exc: DatabaseUnavailable):
 
 # Load shedding bọc ngoài cùng: từ chối request thừa trước khi nó tốn tài nguyên nào khác.
 app.add_middleware(LoadShedder, max_in_flight=config.MAX_IN_FLIGHT_REQUESTS,
-                   retry_after=config.OVERLOAD_RETRY_AFTER_SECONDS)
+                   retry_after=config.OVERLOAD_RETRY_AFTER_SECONDS,
+                   exempt_prefixes=("/health", "/ready", "/payments", "/mock-gateway"))
 
 # Mount frontend sau cùng để không che các route API.
 app.mount(

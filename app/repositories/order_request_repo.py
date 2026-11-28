@@ -6,7 +6,7 @@ Dùng chính PostgreSQL làm hàng đợi bền vững: không thêm hạ tầng
 """
 from datetime import datetime
 
-from sqlalchemy import case, insert, select, update
+from sqlalchemy import case, func, insert, select, update
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -20,6 +20,11 @@ _DETAIL_MAX = 255
 class OrderRequestRepository:
     def __init__(self, db: Session):
         self.db = db
+
+    def count_pending(self) -> int:
+        return self.db.scalar(
+            select(func.count()).select_from(OrderRequest).where(OrderRequest.status == "pending")
+        )
 
     def create(self, *, user_id: int, ticket_type_id: int, quantity: int,
                idempotency_key: str | None) -> OrderRequest | None:

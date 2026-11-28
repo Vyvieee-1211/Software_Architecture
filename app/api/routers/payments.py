@@ -8,6 +8,8 @@ PaymentService.handle_webhook.
 - VNPay: GET, kết quả trong query string; VNPay chờ JSON {"RspCode", "Message"} với mã
   "00" nghĩa là hệ thống đã ghi nhận.
 """
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse
@@ -20,6 +22,18 @@ from app.services.errors import InvalidWebhookSignature, NotFound
 from app.services.payment_service import PaymentService, WebhookOutcome
 
 router = APIRouter(prefix="/payments", tags=["payments"])
+
+
+class WebhookTimingMiddleware:
+    """Ghi nhận thời điểm webhook vào ứng dụng trước khi FastAPI xử lý dependencies."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"] == "/payments/webhook":
+            scope.setdefault("state", {})["webhook_received_at"] = time.monotonic()
+        await self.app(scope, receive, send)
 
 
 def webhook_response(outcome: WebhookOutcome) -> WebhookResponse:
@@ -41,7 +55,9 @@ async def payment_webhook(request: Request, svc: PaymentService = Depends(get_pa
     # Chữ ký được tính trên đúng từng byte cổng gửi, nên phải đọc body thô.
     body = await request.body()
     headers = {name.lower(): value for name, value in request.headers.items()}
-    outcome = await run_in_threadpool(svc.handle_webhook, headers, body)
+    outcome = await run_in_threadpool(
+        svc.handle_webhook, headers, body, getattr(request.state, "webhook_received_at", None),
+    )
     if isinstance(svc.gateway, momo.MoMoGateway):
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     return webhook_response(outcome)
@@ -62,7 +78,9 @@ async def vnpay_ipn(request: Request, svc: PaymentService = Depends(get_payment_
     # Chữ ký VNPay tính trên các tham số của query string, nên đưa nguyên query vào làm body.
     body = request.url.query.encode()
     try:
-        outcome = await run_in_threadpool(svc.handle_webhook, {}, body)
+        outcome = await run_in_threadpool(
+            svc.handle_webhook, {}, body, getattr(request.state, "webhook_received_at", None),
+        )
     except InvalidWebhookSignature:
         return vnpay.ipn_reply(*vnpay.IPN_REPLY_SIGNATURE)
     except NotFound:
